@@ -4,7 +4,7 @@ from lustro.sources import SOURCES, get_source
 
 
 def test_all_sources_declare_contract():
-    assert set(SOURCES) >= {"openverse", "wikimedia", "pexels"}
+    assert set(SOURCES) >= {"openverse", "wikimedia", "pexels", "met"}
     for name, src in SOURCES.items():
         assert src.name == name
         assert isinstance(src.allow_hosts, frozenset) and src.allow_hosts

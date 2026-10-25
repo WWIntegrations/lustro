@@ -33,6 +33,7 @@ copyright, ToS / robots.txt, server load, and no-evasion - maps to Lustro's beha
 | Openverse  | `api.openverse.org` (anonymous)     | yes (CC / PDM)     |
 | Wikimedia  | Commons MediaWiki API               | yes (per-file)     |
 | Pexels     | `api.pexels.com` (`PEXELS_API_KEY`) | Pexels License     |
+| Met Museum | Open Access API (anonymous)         | CC0 (public domain)|
 
 Every adapter implements the same `Source` contract and declares the hosts its assets
 may live on (the SSRF allowlist used during verification). New sources are added only
