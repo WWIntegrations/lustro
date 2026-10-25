@@ -38,3 +38,24 @@ def test_resource_sanitizes_on_construction():
     assert r.url == ""            # unsafe scheme dropped
     assert r.license == "CC BY 4.0"
     assert r.tags == ["a", "b c"]
+
+
+def test_make_session_is_polite():
+    from lustro.compliance import PoliteSession, USER_AGENT, make_session
+    s = make_session(0.0)
+    assert isinstance(s, PoliteSession)
+    assert "Lustro" in s.headers["User-Agent"]
+    assert USER_AGENT.startswith("Lustro/")
+
+
+def test_rate_limiter_enforces_per_host_interval():
+    import time
+    from lustro.compliance import RateLimiter
+    rl = RateLimiter(min_interval=0.05)
+    rl.wait("host-a")                 # first call for a host is free
+    t0 = time.monotonic()
+    rl.wait("host-a")                 # second must wait ~min_interval
+    assert time.monotonic() - t0 >= 0.04
+    t1 = time.monotonic()
+    rl.wait("host-b")                 # a different host is independent
+    assert time.monotonic() - t1 < 0.04

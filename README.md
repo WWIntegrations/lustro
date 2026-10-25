@@ -1,7 +1,7 @@
 # Lustro
 
 Compliant, open-source media-collector library. Lustro mirrors the useful parts of
-commercial scraping platforms (Apify-style "actors") - search public image/media
+commercial scraping platforms - search public image/media
 sources, verify every result live, and carry provenance and license - while staying
 strictly inside what each source permits.
 
@@ -23,14 +23,21 @@ strictly inside what each source permits.
 - **No secrets in the repo.** API keys (e.g. `PEXELS_API_KEY`) are read from the
   environment only.
 
+See [`COMPLIANCE.md`](COMPLIANCE.md) for how each risk criterion - data type (GDPR),
+copyright, ToS / robots.txt, server load, and no-evasion - maps to Lustro's behavior.
+
 ## Sources (v1)
 
-| Source     | Access                              | License info     |
-|------------|-------------------------------------|------------------|
-| Openverse  | `api.openverse.org` (anonymous)     | yes (CC / PDM)   |
+| Source     | Access                              | License info       |
+|------------|-------------------------------------|--------------------|
+| Openverse  | `api.openverse.org` (anonymous)     | yes (CC / PDM)     |
+| Wikimedia  | Commons MediaWiki API               | yes (per-file)     |
+| Pexels     | `api.pexels.com` (`PEXELS_API_KEY`) | Pexels License     |
 
-Wikimedia Commons and Pexels adapters follow the same `Source` contract and ship next;
-each must pass the compliance checklist above before it is registered.
+Every adapter implements the same `Source` contract and declares the hosts its assets
+may live on (the SSRF allowlist used during verification). New sources are added only
+after they pass the compliance checklist above. Pexels needs `PEXELS_API_KEY` in the
+environment; without it that source simply yields nothing.
 
 ## Install
 
