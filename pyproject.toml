@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lustro"
-version = "0.1.0"
-description = "Compliant, open-source media collector: official APIs / robots-allowed only, live-verified, license-tracked."
+version = "0.2.0"
+description = "Compliant, open-source local mirror of Apify-style scraping primitives (datasets, key-value stores, request queues, actors) plus a licensed media collector. robots.txt always, no evasion."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Wiktor Wojtarowicz" }]
-keywords = ["scraping", "collector", "openverse", "creative-commons", "images", "compliant"]
+keywords = ["scraping", "crawler", "apify", "robots-txt", "seo", "llms-txt", "collector", "openverse", "compliant"]
 dependencies = ["requests>=2.31", "Pillow>=10.0"]
 
 [project.scripts]

@@ -13,8 +13,14 @@ it never disguises a request to get around a control.
 - **Risky:** personal data (GDPR/RODO) without a legal basis, or confidential data behind
   a login.
 - **Lustro:** queries only public, unauthenticated or official-key APIs (Openverse,
-  Wikimedia Commons, Pexels). It never logs in, never touches login-gated content, and
-  collects media + license metadata - not personal profiles.
+  Wikimedia Commons, Pexels) and public pages. It never logs in, never touches
+  login-gated content, and collects media, page content and technical metadata - not
+  personal profiles.
+- **v0.2:** e-mail addresses and phone numbers are **redacted by default** in every
+  dataset item (and in Markdown / generated text) before anything is stored
+  (`redactPii: true`). Turning it off is an explicit per-run input and the operator's
+  legal-basis decision. `mailto:` / `tel:` links are never followed. The
+  security-headers actor keeps cookie names and flags only, never cookie values.
 
 ### 2. Copyright
 - **Permitted:** data for analytics, comparison, or text/data mining (TDM); using works
@@ -30,8 +36,13 @@ it never disguises a request to get around a control.
   `robots.txt`.
 - **Risky:** ignoring a platform's ToS that forbids scraping (e.g. LinkedIn, Meta) -
   account/IP bans or civil suits.
-- **Lustro:** uses official APIs. Any future page-based source **must** pass
-  `compliance.robots_ok()` before fetching, and a source whose operator forbids automated
+- **Lustro:** uses official APIs, and every page fetch in v0.2 goes through
+  `PoliteCrawler`, which checks robots.txt for the origin of **every redirect hop**
+  before requesting it. There is no option to skip robots.txt. robots.txt that answers
+  401/403 means "everything disallowed"; one that cannot be read (5xx, network error)
+  means the host is skipped. Pages with `noindex` (meta robots or `X-Robots-Tag`) are
+  not stored as content, and `nofollow` pages are not expanded. Any page-based source
+  **must** pass these checks before fetching, and a source whose operator forbids automated
   access is simply **not added** (for example, a site returning `403 "automated access
   blocked"` is left out rather than worked around). Lustro does not collect from
   ToS-protected, login-gated platforms.
@@ -43,6 +54,12 @@ it never disguises a request to get around a control.
 - **Lustro:** `make_session()` returns a `PoliteSession` that enforces a per-host minimum
   interval between requests. No source can hammer a host, and the limit is a parameter,
   not a promise.
+- **v0.2:** crawls are sequential; the per-host interval has a floor of 0.5 s (only
+  loopback test hosts under the explicit test switch may go lower) and is raised by
+  robots.txt `Crawl-delay` (capped at 30 s). 429 and 5xx responses are retried with
+  backoff that honours `Retry-After`; if a server asks to wait longer than the cap,
+  Lustro stops instead of retrying early. Runs are bounded by `maxPages`, `maxDepth`
+  and a byte limit per response.
 
 ### 5. No human-impersonation / anti-bot evasion (hard line)
 - **Risky pattern:** bots configured to look like real people - spoofed browser headers,
@@ -53,6 +70,25 @@ it never disguises a request to get around a control.
   itself honestly in its `User-Agent` (with a contact URL) and backs off when limited.
   This is the single line that separates a collector you can run in the open from one you
   cannot.
+
+### 6. Network safety (SSRF) and local services (v0.2)
+- Every request and every redirect hop is checked: http(s) only, no credentials in
+  URLs, and hosts resolving to private, loopback, link-local, reserved or multicast
+  addresses are refused. Loopback IPs (127.0.0.1, ::1) are reachable only with the
+  explicit test switch (`allow_loopback` / `--allow-loopback`), never by default, and
+  the switch never opens other private ranges or names such as `localhost`.
+- Sitemaps are read without an XML parser and documents with DOCTYPE/ENTITY
+  declarations are refused (no XXE, no entity expansion); gzip is capped at 50 MB.
+- The local API binds to a loopback IP only, supports a Bearer token
+  (`LUSTRO_API_TOKEN`), rejects non-loopback `Host` headers and serves stored records
+  with `Content-Security-Policy: sandbox` and `nosniff`.
+- Webhooks go only to allowlisted hosts (`LUSTRO_WEBHOOK_HOSTS`), over HTTPS, without
+  redirects, signed with HMAC-SHA256 (`LUSTRO_WEBHOOK_SECRET`).
+- `lustro schedule` prints cron/launchd entries; it never installs persistence.
+
+### 7. Out of scope by decision
+No residential or rotating proxies, no identity rotation, no CAPTCHA solving, no
+anti-bot evasion, no multi-tenant hosting, no scraping through MCP/agent tools.
 
 ## Summary
 

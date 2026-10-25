@@ -1,16 +1,25 @@
-"""Lustro - compliant, open-source media collector.
+"""Lustro - compliant, open-source collector and local mirror of Apify-style primitives.
 
-Public API: `search(query, sources=..., limit=..., verify=...)` -> list[Resource].
-Every returned Resource is live-verified (unless verify=False) and carries license +
-provenance. Verification is SSRF-gated by each source's declared allow_hosts.
+Public API:
+  search(query, sources=..., limit=..., verify=...) -> list[Resource]   (v0.1 media)
+  run_actor(name, input, storage=None, ...) -> run record                (v0.2 actors)
+
+Every fetch is robots.txt-checked, rate-limited per host and SSRF-guarded.
 """
 from __future__ import annotations
 
 from .models import Resource
 from .sources import SOURCES, get_source
 
-__version__ = "0.1.0"
-__all__ = ["Resource", "search", "SOURCES", "get_source", "__version__"]
+from ._version import __version__
+
+__all__ = ["Resource", "search", "run_actor", "SOURCES", "get_source", "__version__"]
+
+
+def run_actor(*args, **kwargs):
+    """Run an actor synchronously; see lustro.actor.run_actor."""
+    from .actor import run_actor as _run
+    return _run(*args, **kwargs)
 
 
 def search(query, sources=None, limit=12, verify=True, session=None):
