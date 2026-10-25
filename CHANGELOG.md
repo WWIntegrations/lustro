@@ -32,7 +32,9 @@ Local, compliant mirror of Apify-style platform primitives, plus seven actors.
 - Security hardening: API token required by default (random token printed once,
   `--no-auth` to opt out), JSON-only POST (415), foreign `Origin` refused (403);
   DNS-rebinding-safe connections (resolve once, validate all addresses, connect to the
-  validated IP, re-check the peer, on every hop); linear-time sitemap tokenizer.
+  validated IP, re-check the peer, on every hop); address policy = globally routable
+  unicast only, also for IPv4 embedded in IPv6 (mapped, 6to4, Teredo, NAT64);
+  linear-time sitemap tokenizer.
 
 ## 0.1.0
 

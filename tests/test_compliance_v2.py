@@ -122,3 +122,34 @@ def test_pinned_adapter_connects_to_validated_ip(site):
     import pytest
     with pytest.raises(SSRFBlocked):
         pin_session(requests.Session()).get(site.base + "/about", timeout=5)
+
+
+import ipaddress  # noqa: E402
+
+import pytest  # noqa: E402
+
+from lustro.compliance import ip_blocked  # noqa: E402
+
+
+@pytest.mark.parametrize("addr", [
+    "100.64.0.1", "192.0.0.1", "198.18.0.1", "240.0.0.1", "::ffff:127.0.0.1",
+    "2002:7f00:0001::", "64:ff9b::7f00:1", "64:ff9b:1:7f00:0:100::", "169.254.169.254",
+    "fd00::1", "2001:0:4136:e378:8000:63bf:80ff:fffe", "224.0.0.1", "ff02::1", "0.0.0.0",
+    "10.0.0.1", "::1", "127.0.0.1",
+])
+def test_non_global_addresses_blocked(addr):
+    assert ip_blocked(ipaddress.ip_address(addr))
+
+
+@pytest.mark.parametrize("addr", ["93.184.216.34", "2606:4700:4700::1111", "1.1.1.1"])
+def test_global_addresses_allowed(addr):
+    assert not ip_blocked(ipaddress.ip_address(addr))
+
+
+def test_loopback_exception_only_with_switch():
+    assert not ip_blocked(ipaddress.ip_address("127.0.0.1"), allow_loopback=True)
+    assert not ip_blocked(ipaddress.ip_address("::1"), allow_loopback=True)
+    assert ip_blocked(ipaddress.ip_address("10.0.0.1"), allow_loopback=True)
+    # embedded IPv4 follows the same policy, and the switch never covers names
+    assert check_target("http://[::ffff:127.0.0.1]/", allow_loopback=True)
+    assert check_target("http://[64:ff9b::a9fe:a9fe]/")  # NAT64 of 169.254.169.254
