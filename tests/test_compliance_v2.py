@@ -136,6 +136,7 @@ from lustro.compliance import ip_blocked  # noqa: E402
     "2002:7f00:0001::", "64:ff9b::7f00:1", "64:ff9b:1:7f00:0:100::", "169.254.169.254",
     "fd00::1", "2001:0:4136:e378:8000:63bf:80ff:fffe", "224.0.0.1", "ff02::1", "0.0.0.0",
     "10.0.0.1", "::1", "127.0.0.1",
+    "::7f00:1", "::a00:1", "::ffff:0:7f00:1", "::ffff:0:a9fe:a9fe", "::",
 ])
 def test_non_global_addresses_blocked(addr):
     assert ip_blocked(ipaddress.ip_address(addr))
@@ -150,6 +151,7 @@ def test_loopback_exception_only_with_switch():
     assert not ip_blocked(ipaddress.ip_address("127.0.0.1"), allow_loopback=True)
     assert not ip_blocked(ipaddress.ip_address("::1"), allow_loopback=True)
     assert ip_blocked(ipaddress.ip_address("10.0.0.1"), allow_loopback=True)
+    assert ip_blocked(ipaddress.ip_address("::a00:1"), allow_loopback=True)
     # embedded IPv4 follows the same policy, and the switch never covers names
     assert check_target("http://[::ffff:127.0.0.1]/", allow_loopback=True)
     assert check_target("http://[64:ff9b::a9fe:a9fe]/")  # NAT64 of 169.254.169.254

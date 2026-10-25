@@ -75,7 +75,9 @@ it never disguises a request to get around a control.
 - Every request and every redirect hop is checked: http(s) only, no credentials in
   URLs, and any address that is not globally routable unicast (`not is_global` or
   multicast: private, CGNAT, loopback, link-local, benchmarking, reserved...) is
-  refused, including IPv4 embedded in IPv6 (IPv4-mapped, 6to4, Teredo, NAT64
+  refused (with redundant is_private/is_reserved/is_link_local/is_unspecified checks),
+  including IPv4 embedded in IPv6 (IPv4-compatible ::/96, IPv4-mapped, IPv4-translated
+  ::ffff:0:0:0/96, 6to4, Teredo, NAT64
   64:ff9b::/96 and 64:ff9b:1::/48), which gets the same policy. The binding check happens at connect time (`PinnedAdapter`):
   the host is resolved once, ALL addresses are validated, the socket is opened to the
   validated IP with the original Host header and TLS SNI, and the peer address is
