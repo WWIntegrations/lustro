@@ -62,8 +62,7 @@ def is_public_address(host: str) -> bool:
             ip = ipaddress.ip_address(sockaddr[0])
         except ValueError:
             return False
-        if (ip.is_private or ip.is_loopback or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+        if ip_blocked(ip):
             return False
     return True
 
@@ -73,14 +72,46 @@ def is_loopback_host(host: str) -> bool:
     are deliberately not accepted, so the test switch cannot be steered through DNS."""
     h = (host or "").strip("[]").lower()
     try:
-        return ipaddress.ip_address(h).is_loopback
+        ip = ipaddress.ip_address(h)
     except ValueError:
         return False
+    # canonical forms only: 127.0.0.0/8 or ::1 (no IPv4-mapped / embedded variants)
+    return (ip.version == 4 and ip.is_loopback) or ip == ipaddress.IPv6Address("::1")
 
 
-def _ip_blocked(ip) -> bool:
-    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-            or ip.is_multicast or ip.is_unspecified)
+_NAT64_WKP = ipaddress.ip_network("64:ff9b::/96")      # RFC 6052 well-known prefix
+_NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")  # RFC 8215 local-use prefix
+
+
+def _embedded_ipv4(ip) -> list:
+    """IPv4 addresses carried inside an IPv6 address (mapped, 6to4, Teredo server and
+    client, NAT64 /96 and /48)."""
+    if ip.version != 6:
+        return []
+    out = []
+    if ip.ipv4_mapped is not None:
+        out.append(ip.ipv4_mapped)
+    if ip.sixtofour is not None:
+        out.append(ip.sixtofour)
+    if ip.teredo is not None:
+        out.extend(ip.teredo)
+    if ip in _NAT64_WKP:
+        out.append(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+    elif ip in _NAT64_LOCAL:
+        b = ip.packed  # RFC 6052 /48 layout: IPv4 in bytes 6-7 and 9-10 (byte 8 is "u")
+        out.append(ipaddress.IPv4Address(b[6:8] + b[9:11]))
+    return out
+
+
+def ip_blocked(ip, allow_loopback: bool = False) -> bool:
+    """True if ip (or any IPv4 embedded in it) is not globally routable unicast.
+    Loopback passes only with the explicit allow_loopback test switch."""
+    for a in [ip, *_embedded_ipv4(ip)]:
+        if allow_loopback and a.is_loopback:
+            continue
+        if not a.is_global or a.is_multicast:
+            return True
+    return False
 
 
 class SSRFBlocked(Exception):
@@ -113,7 +144,7 @@ def resolve_validated(host: str, allow_loopback: bool = False) -> list:
             ip = ipaddress.ip_address(a)
         except ValueError:
             raise SSRFBlocked("invalid address") from None
-        if _ip_blocked(ip) and not (loop_ok and ip.is_loopback):
+        if ip_blocked(ip, allow_loopback=loop_ok):
             raise SSRFBlocked("non-public address (SSRF guard)")
     return addrs
 
