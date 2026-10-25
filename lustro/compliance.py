@@ -84,11 +84,16 @@ _NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")  # RFC 8215 local-use pref
 
 
 def _embedded_ipv4(ip) -> list:
-    """IPv4 addresses carried inside an IPv6 address (mapped, 6to4, Teredo server and
-    client, NAT64 /96 and /48)."""
+    """IPv4 addresses carried inside an IPv6 address (IPv4-compatible ::/96, mapped,
+    translated ::ffff:0:0:0/96, 6to4, Teredo server and client, NAT64 /96 and /48)."""
     if ip.version != 6:
         return []
     out = []
+    n = int(ip)
+    if n >> 32 == 0 and n > 1:                 # ::/96 IPv4-compatible (deprecated)
+        out.append(ipaddress.IPv4Address(n & 0xFFFFFFFF))
+    if n >> 32 == 0xFFFF0000:                  # ::ffff:0:0:0/96 IPv4-translated (RFC 2765)
+        out.append(ipaddress.IPv4Address(n & 0xFFFFFFFF))
     if ip.ipv4_mapped is not None:
         out.append(ip.ipv4_mapped)
     if ip.sixtofour is not None:
@@ -106,10 +111,14 @@ def _embedded_ipv4(ip) -> list:
 def ip_blocked(ip, allow_loopback: bool = False) -> bool:
     """True if ip (or any IPv4 embedded in it) is not globally routable unicast.
     Loopback passes only with the explicit allow_loopback test switch."""
+    if allow_loopback and ip == ipaddress.IPv6Address("::1"):
+        return False
     for a in [ip, *_embedded_ipv4(ip)]:
         if allow_loopback and a.is_loopback:
             continue
-        if not a.is_global or a.is_multicast:
+        # is_global alone is not trusted: its tables differ between Python versions
+        if (not a.is_global or a.is_multicast or a.is_reserved or a.is_private
+                or a.is_link_local or a.is_unspecified or a.is_loopback):
             return True
     return False
 
