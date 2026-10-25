@@ -22,10 +22,11 @@ TIMEOUT = 30
 MAX_BYTES = 15 * 1024 * 1024
 
 
-def make_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json, */*;q=0.5"})
-    return s
+def make_session(min_interval: float = 1.0) -> requests.Session:
+    """Polite session: sets the Lustro UA and enforces a per-host minimum interval between
+    requests, so a run never overloads a source (the 'server stability' rule). See
+    PoliteSession below."""
+    return PoliteSession(min_interval)
 
 
 def host_allowed(host: str, allowlist) -> bool:
@@ -97,3 +98,19 @@ class RateLimiter:
             if delay > 0:
                 time.sleep(delay)
             self._last[host] = time.monotonic()
+
+
+class PoliteSession(requests.Session):
+    """A requests.Session that enforces a per-host minimum interval between requests, so
+    Lustro stays within polite rate limits and never hammers a source. This is how the
+    'server stability' compliance rule is enforced in code, not just promised."""
+
+    def __init__(self, min_interval: float = 1.0):
+        super().__init__()
+        self.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json, */*;q=0.5"})
+        self._limiter = RateLimiter(min_interval)
+
+    def request(self, method, url, *args, **kwargs):
+        host = urlparse(url).hostname or ""
+        self._limiter.wait(host)
+        return super().request(method, url, *args, **kwargs)
