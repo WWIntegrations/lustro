@@ -68,8 +68,41 @@ def test_api_input_errors_in_polish(api):
     assert "startUrls: pole jest wymagane" in errs and "maxSitemaps: wartość musi być >= 1" in errs
     assert requests.post(api.url + "/v2/acts/nope/runs", json={}, headers=_h(),
                          timeout=5).status_code == 404
-    r = requests.post(api.url + "/v2/acts/sitemap/runs", data=b"{bad", headers=_h(), timeout=5)
+    r = requests.post(api.url + "/v2/acts/sitemap/runs", data=b"{bad",
+                      headers=dict(_h(), **{"Content-Type": "application/json"}), timeout=5)
     assert r.status_code == 400
+
+
+def test_api_token_required_by_default(storage, monkeypatch):
+    monkeypatch.delenv("LUSTRO_API_TOKEN", raising=False)
+    a = LustroAPI(storage, port=0)
+    a.start()
+    try:
+        assert a.token_generated and len(a.token) >= 32
+        assert requests.get(a.url + "/v2/acts", timeout=5).status_code == 401
+        assert requests.get(a.url + "/v2/acts", headers=_h(a.token), timeout=5).status_code == 200
+    finally:
+        a.shutdown()
+    b = LustroAPI(storage, port=0, no_auth=True)
+    b.start()
+    try:
+        assert requests.get(b.url + "/v2/acts", timeout=5).status_code == 200
+    finally:
+        b.shutdown()
+
+
+def test_api_requires_json_and_refuses_foreign_origin(api):
+    r = requests.post(api.url + "/v2/acts/sitemap/runs", data=b"{}",
+                      headers=dict(_h(), **{"Content-Type": "text/plain"}), timeout=5)
+    assert r.status_code == 415
+    r = requests.post(api.url + "/v2/acts/sitemap/runs", data=b"{}", headers=_h(), timeout=5)
+    assert r.status_code == 415                       # no Content-Type at all
+    r = requests.get(api.url + "/v2/acts", headers=dict(_h(), Origin="https://evil.example"), timeout=5)
+    assert r.status_code == 403 and r.json()["error"]["type"] == "forbidden-origin"
+    r = requests.get(api.url + "/v2/acts", headers=dict(_h(), Origin="null"), timeout=5)
+    assert r.status_code == 403
+    r = requests.get(api.url + "/v2/acts", headers=dict(_h(), Origin=api.url), timeout=5)
+    assert r.status_code == 200
 
 
 # --- webhooks --------------------------------------------------------------------------

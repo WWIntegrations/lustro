@@ -88,8 +88,9 @@ print(rec["status"], rec["itemCount"], rec["defaultDatasetId"])
 ### Local API
 
 ```bash
-export LUSTRO_API_TOKEN=change-me      # optional Bearer token
 lustro serve --port 8765               # binds to 127.0.0.1 only
+# a Bearer token is always required: --token / $LUSTRO_API_TOKEN, otherwise a random
+# one is generated and printed once at start; --no-auth disables it explicitly
 ```
 
 | Route | |
@@ -100,7 +101,9 @@ lustro serve --port 8765               # binds to 127.0.0.1 only
 | `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv` | items |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
 
-Requests with a non-loopback `Host` header are refused (DNS-rebinding guard).
+Requests with a non-loopback `Host` header (DNS-rebinding guard) or a non-loopback
+`Origin` header (browser CSRF guard) get 403; POST bodies must be `application/json`
+(415 otherwise).
 
 ### Webhooks
 
@@ -170,8 +173,13 @@ the open, that respects the sites it touches.
 ## Known limits
 
 - robots.txt matching uses `urllib.robotparser`: no `*` / `$` wildcards inside paths.
-- The SSRF check resolves the host before the request; a DNS answer that changes
-  between check and connect (rebinding) is not fully excluded.
+- DNS rebinding is closed for crawler, robots.txt and webhook requests: the host is
+  resolved once at connect time, every address is validated, the socket goes to that
+  IP (Host/SNI unchanged) and the peer is re-checked, on every redirect hop. Those
+  sessions ignore `HTTP(S)_PROXY`, because a proxy would resolve names itself. The
+  v0.1 media verification still uses its per-source host allowlist instead.
+- Sitemaps are read by a single linear pass over tag boundaries (no XML parser), so
+  unusual but valid XML constructs beyond the sitemap vocabulary are ignored.
 - PII redaction is a heuristic for e-mail addresses and phone numbers, not a full
   personal-data classifier.
 - No JavaScript rendering: pages that only build content in the browser yield little.

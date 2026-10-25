@@ -74,14 +74,23 @@ it never disguises a request to get around a control.
 ### 6. Network safety (SSRF) and local services (v0.2)
 - Every request and every redirect hop is checked: http(s) only, no credentials in
   URLs, and hosts resolving to private, loopback, link-local, reserved or multicast
-  addresses are refused. Loopback IPs (127.0.0.1, ::1) are reachable only with the
+  addresses are refused. The binding check happens at connect time (`PinnedAdapter`):
+  the host is resolved once, ALL addresses are validated, the socket is opened to the
+  validated IP with the original Host header and TLS SNI, and the peer address is
+  re-checked, so a DNS answer that changes after the early check (rebinding) cannot
+  reach an internal address. These sessions do not use environment proxies. Loopback IPs (127.0.0.1, ::1) are reachable only with the
   explicit test switch (`allow_loopback` / `--allow-loopback`), never by default, and
   the switch never opens other private ranges or names such as `localhost`.
-- Sitemaps are read without an XML parser and documents with DOCTYPE/ENTITY
-  declarations are refused (no XXE, no entity expansion); gzip is capped at 50 MB.
-- The local API binds to a loopback IP only, supports a Bearer token
-  (`LUSTRO_API_TOKEN`), rejects non-loopback `Host` headers and serves stored records
-  with `Content-Security-Policy: sandbox` and `nosniff`.
+- Sitemaps are read without an XML parser, in one linear pass over tag boundaries (no
+  backtracking regex, so hostile input cannot cause super-linear work); documents with
+  DOCTYPE/ENTITY declarations are refused (no XXE, no entity expansion); size is capped
+  at 50 MB, also after gzip.
+- The local API binds to a loopback IP only and always requires a Bearer token
+  (`--token`, `LUSTRO_API_TOKEN`, or a random one printed once at start; only an
+  explicit `--no-auth` disables it), compared in constant time. It rejects non-loopback
+  `Host` headers (DNS rebinding) and non-loopback `Origin` headers (browser CSRF),
+  accepts POST bodies only as `application/json`, and serves stored records with
+  `Content-Security-Policy: sandbox` and `nosniff`.
 - Webhooks go only to allowlisted hosts (`LUSTRO_WEBHOOK_HOSTS`), over HTTPS, without
   redirects, signed with HMAC-SHA256 (`LUSTRO_WEBHOOK_SECRET`).
 - `lustro schedule` prints cron/launchd entries; it never installs persistence.

@@ -71,6 +71,19 @@ def test_parse_sitemap_variants():
         parse_sitemap(b"<html><body>not a sitemap</body></html>")
 
 
+def test_parse_sitemap_pathological_input_is_linear():
+    import time
+    bomb = b'<?xml version="1.0"?><urlset>' + b"<url><loc>" * 100_000 + b"<" * 100_000
+    t0 = time.monotonic()
+    kind, entries = parse_sitemap(bomb)
+    assert time.monotonic() - t0 < 2.0
+    assert kind == "urlset" and entries == []
+    t0 = time.monotonic()
+    parse_sitemap(b"<urlset>" + b"<loc" * 200_000)              # tag never closed
+    parse_sitemap(b"<urlset><url><loc><![CDATA[" + b"x" * 1_000_000)
+    assert time.monotonic() - t0 < 2.0
+
+
 def test_seo_audit(site, storage):
     rec, items, kv = _run(storage, "seo-audit", {"startUrls": [site.base + "/"], "maxPages": 10})
     by_url = {i["finalUrl"]: i for i in items}
