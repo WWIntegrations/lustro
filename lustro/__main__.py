@@ -75,6 +75,8 @@ def _parser():
     s = sub.add_parser("serve", help="local API (127.0.0.1 only)")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--token", default=None, help="Bearer token (default: $LUSTRO_API_TOKEN or a random one)")
+    s.add_argument("--no-auth", action="store_true", help="disable the token (loopback only; not recommended)")
     common(s)
 
     sc = sub.add_parser("schedule", help="print a cron line and a launchd plist (installs nothing)")
@@ -141,10 +143,18 @@ def main(argv=None) -> int:
 
     if a.cmd == "serve":
         from .api import LustroAPI
-        api = LustroAPI(Storage(a.storage), a.host, a.port, allow_loopback=a.allow_loopback,
-                        lang=a.lang)
-        auth = "Bearer token required" if api.token else "no token (set LUSTRO_API_TOKEN)"
-        print(f"Lustro API on {api.url} ({auth})")
+        try:
+            api = LustroAPI(Storage(a.storage), a.host, a.port, token=a.token,
+                            allow_loopback=a.allow_loopback, lang=a.lang, no_auth=a.no_auth)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if not api.token:
+            print(f"Lustro API on {api.url} (WARNING: auth disabled with --no-auth)")
+        elif api.token_generated:
+            print(f"Lustro API on {api.url}\nBearer token (shown once): {api.token}", flush=True)
+        else:
+            print(f"Lustro API on {api.url} (Bearer token required)")
         try:
             api.serve_forever()
         except KeyboardInterrupt:

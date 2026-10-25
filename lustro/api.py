@@ -1,7 +1,10 @@
 """Local HTTP API with Apify-shaped routes (stdlib http.server).
 
-Binds to a loopback IP only. Optional Bearer token from LUSTRO_API_TOKEN. Requests whose
-Host header is not the loopback address are refused (DNS-rebinding guard).
+Binds to a loopback IP only. A Bearer token is ALWAYS required unless auth is disabled
+explicitly (--no-auth): it comes from --token / LUSTRO_API_TOKEN, or a random one is
+generated at start and printed once. Requests whose Host header is not a loopback
+address are refused (DNS-rebinding guard), browser requests carrying a non-loopback
+Origin are refused (CSRF guard), and POST bodies must be application/json.
 
     GET  /v2/acts
     POST /v2/acts/<name>/runs[?waitForFinish=<s>&webhooks=<base64 JSON>]   body = input
@@ -18,6 +21,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
@@ -37,11 +41,19 @@ class _Server(ThreadingHTTPServer):
 
 class LustroAPI:
     def __init__(self, storage: Storage = None, host: str = "127.0.0.1", port: int = 8765,
-                 token: str = None, allow_loopback: bool = False, lang: str = None):
+                 token: str = None, allow_loopback: bool = False, lang: str = None,
+                 no_auth: bool = False):
         if not is_loopback_host(host):
             raise ValueError("the Lustro API binds to a loopback IP only (127.0.0.1 or ::1)")
         self.storage = storage or Storage()
-        self.token = token if token is not None else os.environ.get("LUSTRO_API_TOKEN", "")
+        self.token_generated = False
+        if no_auth:
+            self.token = ""
+        else:
+            self.token = token or os.environ.get("LUSTRO_API_TOKEN", "")
+            if not self.token:
+                self.token = secrets.token_urlsafe(32)
+                self.token_generated = True
         self.allow_loopback = allow_loopback
         self.lang = lang
         self.runs: dict = {}
@@ -111,6 +123,15 @@ class _Handler(BaseHTTPRequestHandler):
         if not is_loopback_host(host):
             self._error(403, "forbidden-host", "Host header must be a loopback address")
             return False
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            try:
+                ohost = urlparse(origin).hostname or ""
+            except ValueError:
+                ohost = ""
+            if not is_loopback_host(ohost):
+                self._error(403, "forbidden-origin", "cross-origin browser requests are refused")
+                return False
         token = self.ctx.token
         if token:
             auth = self.headers.get("Authorization", "")
@@ -170,6 +191,9 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._guard():
             return
         path, q = self._route()
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return self._error(415, "unsupported-media-type", "POST body must be application/json")
         m = re.fullmatch(r"/v2/actor-runs/([^/]+)/abort", path)
         if m:
             entry = self.ctx.runs.get(m.group(1))

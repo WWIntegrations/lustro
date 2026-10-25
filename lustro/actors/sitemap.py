@@ -29,31 +29,53 @@ def _gunzip(data: bytes) -> bytes:
 
 
 _ENTITIES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
-_ENT_RE = re.compile(r"&(#x[0-9a-fA-F]+|#\d+|amp|lt|gt|quot|apos);")
-_CDATA_RE = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.S)
-_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
-_P = r"(?:[\w.-]+:)?"  # optional namespace prefix
+_ENT_RE = re.compile(r"&(#x[0-9a-fA-F]{1,6}|#[0-9]{1,7}|amp|lt|gt|quot|apos);")
+_FIELDS = ("loc", "lastmod", "changefreq", "priority")
 
 
 def _unescape(s: str) -> str:
     def sub(m):
         e = m.group(1)
-        if e.startswith("#x"):
-            return chr(int(e[2:], 16))
-        if e.startswith("#"):
-            return chr(int(e[1:]))
+        try:
+            if e.startswith("#x"):
+                return chr(int(e[2:], 16))
+            if e.startswith("#"):
+                return chr(int(e[1:]))
+        except (ValueError, OverflowError):
+            return ""
         return _ENTITIES[e]
-    s = _CDATA_RE.sub(lambda m: m.group(1), s)
-    return _ENT_RE.sub(sub, s).strip()
+    return _ENT_RE.sub(sub, s)
 
 
-def _blocks(xml: str, tag: str):
-    return re.findall(rf"<{_P}{tag}(?:\s[^>]*)?>(.*?)</{_P}{tag}\s*>", xml, re.S)
-
-
-def _field(block: str, tag: str) -> str:
-    m = re.search(rf"<{_P}{tag}(?:\s[^>]*)?>(.*?)</{_P}{tag}\s*>", block, re.S)
-    return _unescape(m.group(1)) if m else ""
+def _tokens(xml: str):
+    """Single forward pass over tag boundaries with str.find (no backtracking regex):
+    yields ('text'|'cdata'|'tag', value). Linear in the document size."""
+    i, n = 0, len(xml)
+    while i < n:
+        lt = xml.find("<", i)
+        if lt < 0:
+            yield "text", xml[i:]
+            return
+        if lt > i:
+            yield "text", xml[i:lt]
+        if xml.startswith("<![CDATA[", lt):
+            end = xml.find("]]>", lt + 9)
+            if end < 0:
+                return
+            yield "cdata", xml[lt + 9:end]
+            i = end + 3
+            continue
+        if xml.startswith("<!--", lt):
+            end = xml.find("-->", lt + 4)
+            if end < 0:
+                return
+            i = end + 3
+            continue
+        gt = xml.find(">", lt + 1)
+        if gt < 0:
+            return
+        yield "tag", xml[lt + 1:gt]
+        i = gt + 1
 
 
 def parse_sitemap(data: bytes):
@@ -61,10 +83,13 @@ def parse_sitemap(data: bytes):
     kind 'urlset' -> list of dicts {url, lastmod, changefreq, priority}.
 
     A deliberately small, non-validating reader for the fixed sitemap vocabulary: no
-    XML parser, no DTD processing, so XXE and entity expansion cannot happen. Documents
+    XML parser, no DTD processing (XXE and entity expansion cannot happen), and a
+    single linear pass, so hostile input cannot cause super-linear work. Documents
     with DOCTYPE/ENTITY declarations are refused outright."""
     if data[:2] == b"\x1f\x8b":
         data = _gunzip(data)
+    if len(data) > MAX_UNCOMPRESSED:
+        raise SitemapError("sitemap exceeds 50 MB")
     head = data[:2048].lstrip(b"\xef\xbb\xbf \t\r\n")
     if not head.startswith(b"<"):
         urls = [ln.strip() for ln in data.decode("utf-8", "replace").splitlines()]
@@ -72,20 +97,56 @@ def parse_sitemap(data: bytes):
     upper = data.upper()
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise SitemapError("DOCTYPE/ENTITY declarations are not allowed")
-    xml = _COMMENT_RE.sub("", data.decode("utf-8", "replace"))
-    if re.search(rf"<{_P}sitemapindex[\s>]", xml):
-        locs = [_field(b, "loc") for b in _blocks(xml, "sitemap")]
-        return "index", [u for u in locs if u]
-    if re.search(rf"<{_P}urlset[\s>]", xml):
-        out = []
-        for b in _blocks(xml, "url"):
-            loc = _field(b, "loc")
-            if loc:
-                out.append({"url": loc, "lastmod": _field(b, "lastmod") or None,
-                            "changefreq": _field(b, "changefreq") or None,
-                            "priority": _field(b, "priority") or None})
-        return "urlset", out
-    raise SitemapError("not a sitemap (no <urlset> or <sitemapindex>)")
+    kind = None
+    entries = []
+    entry = None      # dict while inside <url>/<sitemap>
+    field = None      # current field name inside the entry
+    buf: list = []
+    for typ, val in _tokens(data.decode("utf-8", "replace")):
+        if typ != "tag":
+            if field is not None:
+                buf.append(val if typ == "cdata" else _unescape(val))
+            continue
+        if not val or val[0] in "?!":
+            continue
+        closing = val.startswith("/")
+        body = val[1:] if closing else val
+        parts = body.split(None, 1)
+        if not parts:
+            continue
+        name = parts[0].rstrip("/").rsplit(":", 1)[-1].lower()
+        selfclose = body.endswith("/")
+        if kind is None:
+            if name in ("urlset", "sitemapindex") and not closing:
+                kind = "index" if name == "sitemapindex" else "urlset"
+                continue
+            if not closing:
+                raise SitemapError(f"not a sitemap (root element <{name}>)")
+            continue
+        item_tag = "sitemap" if kind == "index" else "url"
+        if name == item_tag:
+            if closing:
+                if entry and entry.get("loc"):
+                    entries.append(entry)
+                entry, field = None, None
+            elif not selfclose:
+                entry, field, buf = {}, None, []
+            continue
+        if entry is None or name not in _FIELDS:
+            continue
+        if closing:
+            if field == name:
+                entry[name] = "".join(buf).strip()
+            field = None
+        elif not selfclose:
+            field, buf = name, []
+    if kind is None:
+        raise SitemapError("not a sitemap (no <urlset> or <sitemapindex>)")
+    if kind == "index":
+        return "index", [e["loc"] for e in entries]
+    return "urlset", [{"url": e["loc"], "lastmod": e.get("lastmod") or None,
+                       "changefreq": e.get("changefreq") or None,
+                       "priority": e.get("priority") or None} for e in entries]
 
 
 class Sitemap(Actor):

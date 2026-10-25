@@ -72,3 +72,53 @@ def test_robots_cache_refuses_loopback_by_default(site):
     ok, why = rc.allowed(site.base + "/about")
     assert not ok and "unreachable" in why
     assert site.hits == []
+
+
+def test_dns_rebinding_cannot_reach_loopback(site, monkeypatch):
+    """The early check sees a public answer, the connection-time resolution gets
+    127.0.0.1: the pinned adapter must refuse, and nothing may reach the test site."""
+    import socket
+
+    import pytest
+    import requests
+
+    from lustro import compliance
+    from lustro.compliance import SSRFBlocked, pin_session
+
+    port = int(site.base.rsplit(":", 1)[1])
+    real = socket.getaddrinfo
+    calls = []
+
+    def fake(host, *a, **kw):
+        if host == "rebind.example":
+            calls.append(host)
+            ip = "93.184.216.34" if len(calls) == 1 else "127.0.0.1"
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))]
+        return real(host, *a, **kw)
+
+    monkeypatch.setattr(compliance.socket, "getaddrinfo", fake)
+    url = f"http://rebind.example:{port}/"
+    assert check_target(url, allow_loopback=True) is None      # first answer: public
+    sess = pin_session(requests.Session(), allow_loopback=True)
+    with pytest.raises(SSRFBlocked):
+        sess.get(url, timeout=5)                                # second answer: loopback
+    assert site.hits == []
+
+    # end to end through the crawler: blocked, never retried, never connected
+    from lustro.crawler import PoliteCrawler
+    calls.clear()
+    c = PoliteCrawler(min_interval=0, allow_loopback=True)
+    res = c.fetch(url)
+    assert res.blocked and res.error.startswith(("ssrf:", "robots:"))
+    assert site.hits == []
+
+
+def test_pinned_adapter_connects_to_validated_ip(site):
+    import requests
+
+    from lustro.compliance import SSRFBlocked, pin_session
+    ok = pin_session(requests.Session(), allow_loopback=True).get(site.base + "/about", timeout=5)
+    assert ok.status_code == 200
+    import pytest
+    with pytest.raises(SSRFBlocked):
+        pin_session(requests.Session()).get(site.base + "/about", timeout=5)

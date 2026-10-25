@@ -21,7 +21,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from .compliance import USER_AGENT, check_target, host_allowed, is_loopback_host
+from .compliance import (USER_AGENT, SSRFBlocked, check_target, host_allowed,
+                         is_loopback_host, pin_session)
 
 EVENTS = {"SUCCEEDED": "ACTOR.RUN.SUCCEEDED", "FAILED": "ACTOR.RUN.FAILED",
           "ABORTED": "ACTOR.RUN.ABORTED"}
@@ -65,9 +66,11 @@ def send(url, payload, *, secret, allow_hosts, allow_loopback=False, timeout=10,
     ts = str(int(time.time()))
     headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT,
                "X-Lustro-Timestamp": ts, "X-Lustro-Signature": sign(secret, ts, body)}
+    sess = session or pin_session(requests.Session(), allow_loopback)
     try:
-        r = (session or requests).post(url, data=body, headers=headers, timeout=timeout,
-                                       allow_redirects=False)
+        r = sess.post(url, data=body, headers=headers, timeout=timeout, allow_redirects=False)
+    except SSRFBlocked as e:
+        return False, f"refused: {e}"
     except requests.RequestException as e:
         return False, f"error: {type(e).__name__}"
     return 200 <= r.status_code < 300, f"HTTP {r.status_code}"

@@ -29,6 +29,10 @@ Local, compliant mirror of Apify-style platform primitives, plus seven actors.
   redirects, SSRF redirect, 429 Retry-After, security headers). 127.0.0.1 is reachable
   only through the explicit `allow_loopback` test switch.
 - No new core dependencies (standard library + requests).
+- Security hardening: API token required by default (random token printed once,
+  `--no-auth` to opt out), JSON-only POST (415), foreign `Origin` refused (403);
+  DNS-rebinding-safe connections (resolve once, validate all addresses, connect to the
+  validated IP, re-check the peer, on every hop); linear-time sitemap tokenizer.
 
 ## 0.1.0
 

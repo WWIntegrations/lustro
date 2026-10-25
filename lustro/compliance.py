@@ -17,6 +17,7 @@ import urllib.robotparser
 from urllib.parse import urljoin, urlparse
 
 import requests
+import requests.adapters
 
 from ._version import __version__
 
@@ -77,31 +78,140 @@ def is_loopback_host(host: str) -> bool:
         return False
 
 
+def _ip_blocked(ip) -> bool:
+    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_multicast or ip.is_unspecified)
+
+
+class SSRFBlocked(Exception):
+    """Raised by the pinned connection layer when a host resolves to a refused address.
+    Deliberately not an OSError, so urllib3/requests do not wrap it into a retryable
+    connection error."""
+
+
+def resolve_validated(host: str, allow_loopback: bool = False) -> list:
+    """Resolve host ONCE and validate EVERY address. Returns the validated IP strings or
+    raises SSRFBlocked. Loopback is admitted only when host itself is a literal loopback
+    IP and the explicit test switch is on."""
+    h = (host or "").strip("[]").rstrip(".").lower()
+    if not h:
+        raise SSRFBlocked("no host")
+    try:
+        infos = socket.getaddrinfo(h, None, type=socket.SOCK_STREAM)
+    except OSError:
+        raise SSRFBlocked("unresolvable host") from None
+    addrs = []
+    for *_, sockaddr in infos:
+        a = sockaddr[0].split("%")[0]
+        if a not in addrs:
+            addrs.append(a)
+    if not addrs:
+        raise SSRFBlocked("unresolvable host")
+    loop_ok = allow_loopback and is_loopback_host(h)
+    for a in addrs:
+        try:
+            ip = ipaddress.ip_address(a)
+        except ValueError:
+            raise SSRFBlocked("invalid address") from None
+        if _ip_blocked(ip) and not (loop_ok and ip.is_loopback):
+            raise SSRFBlocked("non-public address (SSRF guard)")
+    return addrs
+
+
 def check_target(url: str, allow_loopback: bool = False):
     """Return None if url may be fetched, else a short reason string.
 
-    Checks scheme, embedded credentials and the SSRF guard. allow_loopback is the explicit
-    test switch: it admits literal loopback IPs only, never other private ranges."""
+    Checks scheme, embedded credentials and the SSRF guard (one resolution, every
+    address validated). This is the early, cheap check; the binding check happens again
+    at connect time in PinnedAdapter, which connects only to the validated IP."""
     try:
         p = urlparse(url)
+        host = p.hostname
     except ValueError:
         return "invalid URL"
     if p.scheme not in ("http", "https"):
         return "scheme not allowed"
     if p.username or p.password:
         return "credentials in URL"
-    host = p.hostname
     if not host:
         return "no host"
-    if allow_loopback and is_loopback_host(host):
-        return None
     try:
-        socket.getaddrinfo(host, None)
-    except OSError:
-        return "unresolvable host"
-    if not is_public_address(host):
-        return "non-public address (SSRF guard)"
+        resolve_validated(host, allow_loopback)
+    except SSRFBlocked as e:
+        return str(e)
     return None
+
+
+# --- DNS-rebinding-safe connections ----------------------------------------------------
+# The host is resolved once at connect time, every address is validated, the socket is
+# opened to that validated IP (Host header and TLS SNI stay the original name), and the
+# peer address is checked again after connecting. Each redirect hop is a new request and
+# goes through the same path, so a resolver that changes its answer between the early
+# check and the connection cannot steer Lustro into a private network.
+
+def _pinned_classes(allow_loopback: bool):
+    from urllib3.connection import HTTPConnection, HTTPSConnection
+    from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+    from urllib3.util import connection as u3conn
+
+    def _new_conn(self):
+        addrs = resolve_validated(self._dns_host, allow_loopback)
+        last = None
+        for ip in addrs:
+            try:
+                sock = u3conn.create_connection((ip, self.port), self.timeout,
+                                                source_address=self.source_address,
+                                                socket_options=self.socket_options)
+            except OSError as e:
+                last = e
+                continue
+            peer = sock.getpeername()[0].split("%")[0]
+            if peer != ip:
+                sock.close()
+                raise SSRFBlocked("peer address differs from validated address")
+            return sock
+        from urllib3.exceptions import NewConnectionError
+        raise NewConnectionError(self, f"Failed to establish a new connection: {last}")
+
+    class PinnedHTTPConnection(HTTPConnection):
+        pass
+
+    class PinnedHTTPSConnection(HTTPSConnection):
+        pass
+
+    PinnedHTTPConnection._new_conn = _new_conn
+    PinnedHTTPSConnection._new_conn = _new_conn
+
+    class PinnedHTTPPool(HTTPConnectionPool):
+        ConnectionCls = PinnedHTTPConnection
+
+    class PinnedHTTPSPool(HTTPSConnectionPool):
+        ConnectionCls = PinnedHTTPSConnection
+
+    return PinnedHTTPPool, PinnedHTTPSPool
+
+
+class PinnedAdapter(requests.adapters.HTTPAdapter):
+    """requests adapter whose connections go only to resolved-and-validated IPs."""
+
+    def __init__(self, allow_loopback: bool = False, **kw):
+        self._pools = _pinned_classes(bool(allow_loopback))
+        super().__init__(**kw)
+
+    def init_poolmanager(self, *args, **kwargs):
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = {"http": self._pools[0],
+                                                   "https": self._pools[1]}
+
+
+def pin_session(session, allow_loopback: bool = False):
+    """Mount PinnedAdapter for http(s) and ignore environment proxies (a proxy would do
+    its own DNS resolution and void the pinning). Returns the session."""
+    adapter = PinnedAdapter(allow_loopback)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.trust_env = False
+    return session
 
 
 _robots_cache: dict = {}
@@ -218,7 +328,7 @@ class RobotsCache:
             try:
                 resp = self.session.get(current, stream=True, allow_redirects=False,
                                         timeout=self.timeout)
-            except requests.RequestException:
+            except (requests.RequestException, SSRFBlocked):
                 return RobotsEntry("unreachable")
             try:
                 code = resp.status_code

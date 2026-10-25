@@ -15,7 +15,8 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import requests
 
 from .compliance import (MAX_CRAWL_DELAY, MIN_INTERVAL_FLOOR, PoliteSession, RobotsCache,
-                         check_target, is_loopback_host, origin_of, parse_retry_after)
+                         SSRFBlocked, check_target, is_loopback_host, origin_of,
+                         parse_retry_after, pin_session)
 from .storage import MemoryRequestQueue
 
 HTML_TYPES = ("text/html", "application/xhtml+xml")
@@ -94,6 +95,7 @@ class PoliteCrawler:
         self.session = session or (ctx.session if ctx else PoliteSession(MIN_INTERVAL_FLOOR))
         self.allow_loopback = (ctx.allow_loopback if ctx and allow_loopback is None
                                else bool(allow_loopback))
+        pin_session(self.session, self.allow_loopback)  # connect only to validated IPs
         self.min_interval = float(min_interval)
         self.max_retries = max_retries
         self.backoff_base = backoff_base
@@ -146,6 +148,9 @@ class PoliteCrawler:
             try:
                 resp = self.session.request(method, url, stream=True, allow_redirects=False,
                                             timeout=self.timeout)
+            except SSRFBlocked as e:
+                self.stats["ssrfBlocked"] += 1
+                return None, f"ssrf: {e}"
             except requests.RequestException as e:
                 last_err = f"network: {type(e).__name__}"
                 if attempt < self.max_retries:
@@ -197,6 +202,7 @@ class PoliteCrawler:
             resp, err = self._request(method, current)
             if resp is None:
                 res.final_url, res.error = current, err
+                res.blocked = err.startswith("ssrf:")
                 return res
             try:
                 res.status = resp.status_code
