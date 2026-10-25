@@ -1,25 +1,38 @@
-"""Compliance primitives: User-Agent, host allowlist, SSRF guard, robots.txt, rate limit.
+"""Compliance primitives: User-Agent, host allowlist, SSRF guard, robots.txt, rate limit,
+Retry-After parsing and PII redaction.
 
 Lustro never evades access controls. These helpers put that stance in code: a request
 that is not clearly permitted is refused, never disguised.
 """
 from __future__ import annotations
 
+import email.utils
 import ipaddress
 import os
+import re
 import socket
 import threading
 import time
 import urllib.robotparser
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
+from ._version import __version__
+
 _CONTACT = os.environ.get("LUSTRO_CONTACT", "https://github.com/WWIntegrations/lustro")
-USER_AGENT = f"Lustro/0.1 (+{_CONTACT}) python-requests"
+USER_AGENT = f"Lustro/{__version__} (+{_CONTACT}) python-requests"
+ROBOTS_TOKEN = "Lustro"
 
 TIMEOUT = 30
 MAX_BYTES = 15 * 1024 * 1024
+
+# Floor for the per-host interval of crawler-style fetches. It can only be lowered for
+# loopback hosts, and only when the explicit test switch (allow_loopback) is on.
+MIN_INTERVAL_FLOOR = 0.5
+MAX_CRAWL_DELAY = 30.0
+
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
 
 
 def make_session(min_interval: float = 1.0) -> requests.Session:
@@ -54,6 +67,43 @@ def is_public_address(host: str) -> bool:
     return True
 
 
+def is_loopback_host(host: str) -> bool:
+    """True only for literal loopback IPs (127.0.0.0/8, ::1). Names such as 'localhost'
+    are deliberately not accepted, so the test switch cannot be steered through DNS."""
+    h = (host or "").strip("[]").lower()
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def check_target(url: str, allow_loopback: bool = False):
+    """Return None if url may be fetched, else a short reason string.
+
+    Checks scheme, embedded credentials and the SSRF guard. allow_loopback is the explicit
+    test switch: it admits literal loopback IPs only, never other private ranges."""
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return "invalid URL"
+    if p.scheme not in ("http", "https"):
+        return "scheme not allowed"
+    if p.username or p.password:
+        return "credentials in URL"
+    host = p.hostname
+    if not host:
+        return "no host"
+    if allow_loopback and is_loopback_host(host):
+        return None
+    try:
+        socket.getaddrinfo(host, None)
+    except OSError:
+        return "unresolvable host"
+    if not is_public_address(host):
+        return "non-public address (SSRF guard)"
+    return None
+
+
 _robots_cache: dict = {}
 _robots_lock = threading.Lock()
 
@@ -63,6 +113,7 @@ def robots_ok(url: str, user_agent: str = USER_AGENT) -> bool:
 
     If robots.txt cannot be read at all we allow (standard interpretation), but any
     explicit Disallow is honored. Callers that touch HTML pages must gate on this.
+    (Kept for v0.1 compatibility; the crawler uses the stricter RobotsCache below.)
     """
     p = urlparse(url)
     if p.scheme not in ("http", "https"):
@@ -83,21 +134,167 @@ def robots_ok(url: str, user_agent: str = USER_AGENT) -> bool:
     return rp.can_fetch(user_agent, url)
 
 
+def origin_of(url: str) -> str:
+    p = urlparse(url)
+    return f"{p.scheme}://{p.netloc}".lower()
+
+
+class RobotsEntry:
+    """Parsed robots.txt for one origin. status: ok | missing | denied | unreachable."""
+
+    def __init__(self, status: str, parser=None, http_status: int = 0):
+        self.status = status
+        self.parser = parser
+        self.http_status = http_status
+
+    def allowed(self, url: str, user_agent: str = USER_AGENT) -> bool:
+        if self.status == "missing":
+            return True
+        if self.status in ("denied", "unreachable") or self.parser is None:
+            return False
+        return self.parser.can_fetch(user_agent, url)
+
+    @property
+    def sitemaps(self) -> list:
+        if self.parser is None:
+            return []
+        return list(self.parser.site_maps() or [])
+
+    def crawl_delay(self, user_agent: str = ROBOTS_TOKEN):
+        if self.parser is None:
+            return None
+        try:
+            d = self.parser.crawl_delay(user_agent)
+        except Exception:
+            return None
+        return float(d) if d is not None else None
+
+
+class RobotsCache:
+    """robots.txt per origin, fetched once with the honest Lustro UA through the given
+    (polite) session. Every hop of the robots.txt fetch passes the SSRF check.
+
+    Interpretation (conservative): 2xx -> rules apply; 401/403 -> everything disallowed;
+    other 4xx -> no robots.txt, everything allowed; 5xx or network error -> host treated
+    as unavailable (disallowed). When it is not clearly permitted, Lustro does not fetch.
+    """
+
+    def __init__(self, session, allow_loopback: bool = False, timeout: float = 15,
+                 max_bytes: int = 512 * 1024, on_fetch=None):
+        self.session = session
+        self.allow_loopback = allow_loopback
+        self.timeout = timeout
+        self.max_bytes = max_bytes
+        self.on_fetch = on_fetch  # callback(origin) before the robots.txt request
+        self._cache: dict = {}
+        self._lock = threading.Lock()
+
+    def get(self, url: str) -> RobotsEntry:
+        origin = origin_of(url)
+        with self._lock:
+            entry = self._cache.get(origin)
+        if entry is None:
+            entry = self._fetch(origin)
+            with self._lock:
+                self._cache[origin] = entry
+        return entry
+
+    def allowed(self, url: str):
+        """(allowed: bool, reason: str)."""
+        entry = self.get(url)
+        if entry.allowed(url):
+            return True, ""
+        if entry.status == "ok":
+            return False, "disallowed by robots.txt"
+        return False, f"robots.txt {entry.status} (HTTP {entry.http_status})"
+
+    def _fetch(self, origin: str) -> RobotsEntry:
+        current = origin + "/robots.txt"
+        if self.on_fetch:
+            self.on_fetch(origin)
+        for _ in range(5):
+            if check_target(current, self.allow_loopback):
+                return RobotsEntry("unreachable")
+            try:
+                resp = self.session.get(current, stream=True, allow_redirects=False,
+                                        timeout=self.timeout)
+            except requests.RequestException:
+                return RobotsEntry("unreachable")
+            try:
+                code = resp.status_code
+                if code in _REDIRECT_CODES and resp.headers.get("Location"):
+                    current = urljoin(current, resp.headers["Location"])
+                    continue
+                if code in (401, 403):
+                    return RobotsEntry("denied", http_status=code)
+                if 400 <= code < 500:
+                    return RobotsEntry("missing", http_status=code)
+                if code >= 500 or code < 200 or code >= 300:
+                    return RobotsEntry("unreachable", http_status=code)
+                raw = _read_capped(resp, self.max_bytes)
+            finally:
+                resp.close()
+            rp = urllib.robotparser.RobotFileParser()
+            rp.parse(raw.decode("utf-8", "replace").splitlines())
+            return RobotsEntry("ok", rp, code)
+        return RobotsEntry("unreachable")
+
+
+def _read_capped(resp, max_bytes: int) -> bytes:
+    """Read a streamed body up to max_bytes (the rest is dropped)."""
+    out = bytearray()
+    for chunk in resp.iter_content(64 * 1024):
+        out += chunk
+        if len(out) >= max_bytes:
+            return bytes(out[:max_bytes])
+    return bytes(out)
+
+
+def parse_retry_after(value):
+    """Seconds to wait from a Retry-After header (delta-seconds or HTTP-date), or None."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        dt = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if dt is None:
+        return None
+    return max(0.0, dt.timestamp() - time.time())
+
+
 class RateLimiter:
-    """Enforce a minimum interval between requests to the same host (politeness)."""
+    """Enforce a minimum interval between requests to the same host (politeness).
+
+    The interval can be raised per host (e.g. from robots.txt Crawl-delay). Slots are
+    reserved under the lock and the sleep happens outside it, so one slow host never
+    blocks requests to another."""
 
     def __init__(self, min_interval: float = 1.0):
         self.min_interval = min_interval
         self._last: dict = {}
+        self._intervals: dict = {}
         self._lock = threading.Lock()
+
+    def set_interval(self, host: str, seconds: float) -> None:
+        with self._lock:
+            self._intervals[host] = max(0.0, float(seconds))
+
+    def interval(self, host: str) -> float:
+        return self._intervals.get(host, self.min_interval)
 
     def wait(self, host: str) -> None:
         with self._lock:
             now = time.monotonic()
-            delay = self.min_interval - (now - self._last.get(host, 0.0))
-            if delay > 0:
-                time.sleep(delay)
-            self._last[host] = time.monotonic()
+            last = self._last.get(host)
+            start = now if last is None else max(now, last + self.interval(host))
+            self._last[host] = start
+        delay = start - now
+        if delay > 0:
+            time.sleep(delay)
 
 
 class PoliteSession(requests.Session):
@@ -110,7 +307,61 @@ class PoliteSession(requests.Session):
         self.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json, */*;q=0.5"})
         self._limiter = RateLimiter(min_interval)
 
+    @property
+    def limiter(self) -> RateLimiter:
+        return self._limiter
+
     def request(self, method, url, *args, **kwargs):
         host = urlparse(url).hostname or ""
         self._limiter.wait(host)
         return super().request(method, url, *args, **kwargs)
+
+
+# --- PII redaction --------------------------------------------------------------------
+# Heuristic, on by default: e-mail addresses and phone numbers are replaced before data
+# is stored. Disabling it is the operator's decision (and their legal basis under GDPR).
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(
+    r"(?<![\w/.-])"
+    r"(?:\+\d{8,15}"
+    r"|(?:\+\d{1,3}[\s.-]?)?(?:\(\d{1,4}\)[\s.-]?)?\d{2,4}(?:[\s.-]\d{2,4}){2,4})"
+    r"(?![\w/-])"
+)
+_IPV4_RE = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
+EMAIL_MASK = "[email]"
+PHONE_MASK = "[phone]"
+
+
+def _phone_sub(m):
+    s = m.group(0)
+    digits = sum(ch.isdigit() for ch in s)
+    if digits < 9 or digits > 15 or _IPV4_RE.fullmatch(s):
+        return s
+    return PHONE_MASK
+
+
+def redact_pii(text, phones: bool = True):
+    """Replace e-mail addresses (and, unless phones=False, phone numbers) in text."""
+    if not isinstance(text, str) or not text:
+        return text
+    text = _EMAIL_RE.sub(EMAIL_MASK, text)
+    if phones:
+        text = _PHONE_RE.sub(_phone_sub, text)
+    return text
+
+
+_URLISH_KEYS = re.compile(r"(url|urls|href|src|canonical|link|location)$", re.I)
+
+
+def redact_obj(obj, _key: str = ""):
+    """Recursively redact strings in dicts/lists. URL-like fields and values keep their
+    digits (only e-mails are masked there) so links are not mangled."""
+    if isinstance(obj, str):
+        urlish = bool(_URLISH_KEYS.search(_key or "")) or obj.startswith(("http://", "https://"))
+        return redact_pii(obj, phones=not urlish)
+    if isinstance(obj, dict):
+        return {k: redact_obj(v, str(k)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [redact_obj(v, _key) for v in obj]
+    return obj
