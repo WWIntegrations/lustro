@@ -1,11 +1,32 @@
 # Lustro
 
-Compliant, open-source local mirror of the useful primitives of commercial scraping
+Use it when you need to crawl sites, audit SEO and security headers, or collect licensed
+images on your own machine, without proxies, evasion or anything a site has not allowed.
+
+Lustro is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (Apify-style datasets, key-value stores, request queues, actors, runs and a
 small HTTP API), plus seven ready actors and the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
 robots.txt always, a per-host rate limit, an honest User-Agent with a contact, and
 personal data redacted by default.
+
+## Quickstart
+
+Offline, against the bundled test site (needs Python 3.10+; the `--allow-loopback` switch is
+for tests only, by default 127.0.0.1 and every private address are refused):
+
+```bash
+git clone https://github.com/WWIntegrations/lustro && cd lustro
+python3 -m venv .venv && . .venv/bin/activate && pip install -e .
+lustro testsite --port 8766 &
+lustro run seo-audit --allow-loopback --storage /tmp/lustro-demo \
+  --input '{"startUrls": ["http://127.0.0.1:8766/"], "minIntervalSecs": 0}'
+```
+
+Real output (exit code 0): the last lines are the run record, with `"status": "SUCCEEDED"`
+and `"itemCount": 6`; the items land in `/tmp/lustro-demo/datasets/<run-id>/items.jsonl`.
+The test site's `/private/secret` is disallowed by its `robots.txt`, so Lustro logs
+`robots: disallowed by robots.txt` and does not fetch it.
 
 ## Principles (what makes Lustro different)
 
@@ -153,7 +174,7 @@ for r in search("brutalist concrete architecture", sources=["openverse"], limit=
 CLI:
 
 ```bash
-python -m lustro "brutalist concrete architecture" --sources openverse --limit 12 --json
+python3 -m lustro "brutalist concrete architecture" --sources openverse --limit 12 --json
 ```
 
 Set a contact for the User-Agent (polite crawling):
@@ -162,15 +183,17 @@ Set a contact for the User-Agent (polite crawling):
 export LUSTRO_CONTACT="https://github.com/<you>/lustro"
 ```
 
-## What Lustro deliberately does NOT do
+## Limitations
+
+### What Lustro deliberately does NOT do
 
 Residential/rotating proxies, identity rotation to defeat rate limits, CAPTCHA solving,
 headless-browser anti-bot evasion, ignoring robots.txt (there is no switch for it),
 collecting from sources that forbid automated access, multi-tenant hosting, or
-scraping on behalf of an MCP/agent tool. These are out of scope **by design** - the point is a collector you can run in
+scraping on behalf of an MCP/agent tool. These are out of scope **by design**: the point is a collector you can run in
 the open, that respects the sites it touches.
 
-## Known limits
+### Known limits
 
 - robots.txt matching uses `urllib.robotparser`: no `*` / `$` wildcards inside paths.
 - DNS rebinding is closed for crawler, robots.txt and webhook requests: the host is
