@@ -4,7 +4,7 @@ It exercises every compliance path: robots.txt with a Disallow, a sitemap index 
 gzip child, redirect chains, a redirect into a private address (SSRF), a 429 with
 Retry-After, a 404, a noindex page, security headers, cookies, llms.txt and PII.
 
-    python -m lustro testsite --port 8766
+    python3 -m lustro testsite --port 8766
 """
 from __future__ import annotations
 
