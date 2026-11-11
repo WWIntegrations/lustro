@@ -78,7 +78,8 @@ ww-scraper serve                                      # local HTTP API, token re
 | Watch a site for changes | `change-monitor` with a `monitorName`, on a schedule printed by `ww-scraper schedule` |
 
 How this compares with a hosted platform, including what it does not do:
-[docs/comparison.md](docs/comparison.md).
+[docs/comparison.md](docs/comparison.md). The decisions behind it and the defects found on the
+way: [docs/case-study.md](docs/case-study.md).
 
 ## Platform primitives
 
