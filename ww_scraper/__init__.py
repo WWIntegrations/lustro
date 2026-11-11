@@ -13,7 +13,14 @@ from .sources import SOURCES, get_source
 
 from ._version import __version__
 
-__all__ = ["Resource", "search", "run_actor", "SOURCES", "get_source", "__version__"]
+__all__ = ["Actor", "Resource", "search", "run_actor", "SOURCES", "get_source", "__version__"]
+
+
+def __getattr__(name):
+    if name == "Actor":                      # late import: actor.py imports this package
+        from .actor import Actor
+        return Actor
+    raise AttributeError(name)
 
 
 def run_actor(*args, **kwargs):

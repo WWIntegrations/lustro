@@ -4,7 +4,7 @@
   <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.svg">
   <img src="docs/how-it-works-light.svg" alt="ww-scraper reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine." width="100%">
 </picture>
-<p align="center"><a href="docs/system-map.md">Full system map: 9 diagrams</a></p>
+<p align="center"><a href="docs/system-map.md">Full system map: 12 diagrams</a></p>
 
 Use it when you need to crawl sites, audit SEO and security headers, or collect licensed
 images on your own machine, without proxies, evasion or anything a site has not allowed.
@@ -55,6 +55,32 @@ The test site's `/private/secret` is disallowed by its `robots.txt`, so ww-scrap
 See [`COMPLIANCE.md`](COMPLIANCE.md) for how each risk criterion - data type (GDPR),
 copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's behavior.
 
+## What you can do with it
+
+```bash
+ww-scraper actors                                     # the eleven built-in actors
+ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"]}'
+ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.com/"], "render": true, "maxConcurrency": 4}'
+ww-scraper runs                                       # what ran, with status and item counts
+ww-scraper report <run-id>                            # one HTML file you can open or send
+ww-scraper init price-watch                           # your own actor in one Python file
+ww-scraper run ./price_watch.py --input '{"startUrls": ["https://example.com/"]}'
+ww-scraper serve                                      # local HTTP API, token required
+```
+
+| Need | How |
+|---|---|
+| Pages that build their content with JavaScript | `"render": true` re-reads each page through a local headless Chrome; the browser's connections go through a proxy that refuses private addresses |
+| Faster crawls over several hosts | `"maxConcurrency": N` (1 to 16); one host is still never asked more often than `minIntervalSecs` |
+| A scraper for one specific site | `ww-scraper init <name>` writes a working actor; edit `run(ctx)` |
+| A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format csv` |
+| Know why a URL was skipped | `robots-audit` shows the group, the rule and the pattern that decided |
+| Watch a site for changes | `change-monitor` with a `monitorName`, on a schedule printed by `ww-scraper schedule` |
+
+How this compares with a hosted platform, including what it does not do:
+[docs/comparison.md](docs/comparison.md). The decisions behind it and the defects found on the
+way: [docs/case-study.md](docs/case-study.md).
+
 ## Platform primitives
 
 Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `platform_storage`:
@@ -88,7 +114,7 @@ metadata with the standard library only (`html.parser`).
 | `media-collector`         | the v0.1 sources below, as an actor                                 |
 | `robots-audit`            | per origin: robots.txt groups, the group that applies to each crawler, Crawl-delay, sitemaps, and the decision with the winning rule for every test path; fetches nothing but robots.txt |
 | `structured-data`         | per page: JSON-LD objects (lifted out of `@graph`), Open Graph and Twitter card tags, invalid JSON-LD blocks |
-| `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; the snapshot keeps hashes, titles and word counts, not page text |
+| `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; pages seen before are asked for with ETag / Last-Modified, so an unchanged page that answers 304 is not downloaded again; the snapshot keeps hashes, titles, word counts, validators and link URLs, not page text |
 | `feed-reader`             | RSS / Atom feeds a page advertises (or feed URLs given directly) and their entries |
 
 ```bash
@@ -223,8 +249,13 @@ the open, that respects the sites it touches.
   unusual but valid XML constructs beyond the sitemap vocabulary are ignored.
 - PII redaction is a heuristic for e-mail addresses and phone numbers, not a full
   personal-data classifier.
-- No JavaScript rendering: pages that only build content in the browser yield little.
-- Crawls are sequential (one request at a time) by design.
+- JavaScript rendering needs Chrome or Chromium on the machine (`WW_SCRAPER_CHROME` points
+  at a specific binary). The page's own sub-requests are made by the browser like any
+  visitor's browser; they are blocked from private addresses but not checked against
+  robots.txt one by one. Rendering visits each page twice (once to check, once to render).
+- Concurrency never shortens the interval to a single host, so a one-site crawl is not
+  faster with `maxConcurrency`.
+- File actors are ordinary Python run with your permissions: run only files you trust.
 
 ## License
 

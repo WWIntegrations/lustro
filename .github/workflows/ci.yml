@@ -19,4 +19,8 @@ jobs:
           pip install -e .
           pip install pytest
       - name: Offline tests
+        env:
+          # GitHub's Ubuntu image forbids Chrome's own sandbox for unprivileged users;
+          # the tests only open the bundled 127.0.0.1 site.
+          WW_SCRAPER_CHROME_ARGS: --no-sandbox
         run: pytest -q
