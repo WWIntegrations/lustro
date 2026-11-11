@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 992 248" width="992" height="248" role="img" aria-labelledby="t d">
+<title id="t">A request to the local API</title><desc id="d">A request to the local API must carry a loopback Host header, no foreign Origin and a valid Bearer token. Only then is a run started or a dataset returned.</desc>
+<style>:root{--tlo:#FDFFF5;--tekst:#050507;--linia:#55555A;--strefa:#55555A;--wezel:#FFFFFF;--wezel-tekst:#050507;--akcent:#322DB8;}text{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;fill:var(--tekst)}.n{font-size:13px;font-weight:600;fill:var(--wezel-tekst)}.p{font-size:11px;fill:var(--wezel-tekst)}.s{font-size:12px;fill:var(--strefa)}.tt{font-size:16px;font-weight:700}.wz{fill:var(--wezel);stroke:var(--linia);stroke-width:1.5}.bram{stroke:var(--akcent);stroke-width:3}.mod{stroke-dasharray:0}.st{fill:none;stroke:var(--strefa);stroke-width:1.5;stroke-dasharray:6 4}.kr{stroke:var(--linia);stroke-width:1.5;fill:none}.gr{stroke:var(--akcent);stroke-width:2.5}.gt{fill:var(--akcent)}</style>
+<rect width="992" height="248" fill="#FDFFF5"/>
+<text class="tt" x="40" y="32">A request to the local API</text>
+<g><rect class="st" x="16" y="72" width="216" height="160" rx="6"/><text class="s" x="26" y="88">Client</text></g>
+<g><rect class="st" x="264" y="72" width="712" height="160" rx="6"/><text class="s" x="274" y="88">api.py on 127.0.0.1</text></g>
+<path class="kr" d="M208 152H280"/><path class="gt" d="M288 152l-9 -5v10z"/>
+<path class="gr" d="M248 102V202"/>
+<path class="kr" d="M456 152H528"/><path class="gt" d="M536 152l-9 -5v10z"/>
+<path class="kr" d="M704 152H776"/><path class="gt" d="M784 152l-9 -5v10z"/>
+<g data-id="req" data-typ="klient"><rect class="wz" x="40" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="124" y="144" text-anchor="middle">HTTP request</text>
+<text class="p" x="124" y="178" text-anchor="middle">from this machine</text></g>
+<g data-id="host" data-typ="bramka"><rect class="wz bram" x="288" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="372" y="138" text-anchor="middle">Host and Origin</text>
+<text class="n" x="372" y="154" text-anchor="middle">guard</text>
+<text class="p" x="372" y="178" text-anchor="middle">loopback only, else 403</text></g>
+<g data-id="token" data-typ="bramka"><rect class="wz bram" x="536" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="620" y="144" text-anchor="middle">Bearer token</text>
+<text class="p" x="620" y="178" text-anchor="middle">always required</text></g>
+<g data-id="route" data-typ="usluga"><rect class="wz" x="784" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="868" y="144" text-anchor="middle">Route</text>
+<text class="p" x="868" y="178" text-anchor="middle">runs, datasets, records</text></g>
+</svg>
