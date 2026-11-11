@@ -1,5 +1,10 @@
 # Lustro
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.svg">
+  <img src="docs/how-it-works-light.svg" alt="lustro reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine." width="100%">
+</picture>
+
 Use it when you need to crawl sites, audit SEO and security headers, or collect licensed
 images on your own machine, without proxies, evasion or anything a site has not allowed.
 
