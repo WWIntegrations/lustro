@@ -26,6 +26,14 @@ right-hand column lists only what such platforms publicly offer as their core se
 | Marketplace of ready scrapers | eleven built-in actors | thousands |
 | Scale | one machine | many machines |
 
+## Measured, not claimed
+
+[`bench/safety`](../bench/safety/README.md) runs ww-scraper and Crawlee (the open-source
+library behind Apify) against one hostile local site. In default configuration Crawlee
+fetched a page robots.txt disallows, tried to connect to the cloud metadata address after a
+redirect, retried a 429 within 10 ms of a `Retry-After: 4`, and exported a scraped formula
+into CSV as a live formula. ww-scraper did none of the four.
+
 ## When ww-scraper is the better tool
 
 - You crawl sites you run, sites that allow it, or public data through official APIs.
