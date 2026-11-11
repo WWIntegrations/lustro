@@ -135,6 +135,11 @@ START_URLS = {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxI
 MIN_INTERVAL = {"type": "number", "default": 1.0, "minimum": 0,
                 "description": "Minimum seconds between requests to one host "
                                f"(never below {MIN_INTERVAL_FLOOR} outside the test switch)"}
+CONCURRENCY = {"type": "integer", "default": 1, "minimum": 1, "maximum": 16,
+               "description": "Pages fetched at once; requests to one host stay spaced "
+                              "by minIntervalSecs"}
+RENDER = {"type": "boolean", "default": False,
+          "description": "Run each page's scripts in a local headless Chrome before reading it"}
 REDACT = {"type": "boolean", "default": True,
           "description": "Mask e-mail addresses and phone numbers in output (GDPR default)"}
 
@@ -208,7 +213,8 @@ class RunContext:
         self.abort_event = abort_event or threading.Event()
         self.failures: list = []
         self.stats = {"requests": 0, "retries": 0, "robotsBlocked": 0, "ssrfBlocked": 0,
-                      "failed": 0, "pages": 0, "bytes": 0, "items": 0}
+                      "failed": 0, "pages": 0, "bytes": 0, "items": 0, "rendered": 0,
+                      "renderFailed": 0}
 
     @property
     def aborted(self) -> bool:
@@ -242,7 +248,10 @@ class RunContext:
     def crawler(self, **kwargs):
         from .crawler import PoliteCrawler
         min_interval = kwargs.pop("min_interval", self.input.get("minIntervalSecs", 1.0))
-        return PoliteCrawler(self, min_interval=min_interval, **kwargs)
+        crawler = PoliteCrawler(self, min_interval=min_interval, **kwargs)
+        crawler.default_concurrency = int(self.input.get("maxConcurrency", 1) or 1)
+        crawler.render = bool(self.input.get("render", False))
+        return crawler
 
 
 # --- run lifecycle ---------------------------------------------------------------------

@@ -7,7 +7,9 @@ content-type filter and a byte limit. There is no switch to skip robots.txt.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import fnmatch
+import threading
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urldefrag, urljoin, urlparse
@@ -40,6 +42,7 @@ class FetchResult:
     error: str = ""
     blocked: bool = False      # refused by robots.txt or the SSRF guard (never fetched)
     elapsed_ms: int = 0
+    rendered: bool = False     # body is the DOM after scripts ran (UTF-8)
 
     @property
     def ok(self) -> bool:
@@ -50,6 +53,8 @@ class FetchResult:
         return self.content_type in HTML_TYPES
 
     def text(self) -> str:
+        if self.rendered:
+            return self.body.decode("utf-8", "replace")
         charset = "utf-8"
         ct = self.headers.get("content-type", "") if self.headers else ""
         for part in ct.split(";")[1:]:
@@ -108,8 +113,16 @@ class PoliteCrawler:
                                             "ssrfBlocked": 0, "failed": 0, "pages": 0,
                                             "bytes": 0, "items": 0}
         self._hosts_seen: set = set()
+        self._stats_lock = threading.Lock()
+        self.default_concurrency = 1
+        self.render = False          # True: HTML pages are re-read through headless Chrome
+        self.render_wait_ms = 3000
         self.robots = RobotsCache(self.session, allow_loopback=self.allow_loopback,
                                   on_fetch=self._host_setup_origin)
+
+    def _inc(self, key: str, n: int = 1) -> None:
+        with self._stats_lock:
+            self.stats[key] = self.stats.get(key, 0) + n
 
     # -- politeness -------------------------------------------------------------------
     def _effective_interval(self, host: str) -> float:
@@ -144,17 +157,17 @@ class PoliteCrawler:
         """(response | None, error). Retries 429/5xx and network errors."""
         last_err = ""
         for attempt in range(self.max_retries + 1):
-            self.stats["requests"] += 1
+            self._inc("requests")
             try:
                 resp = self.session.request(method, url, stream=True, allow_redirects=False,
                                             timeout=self.timeout)
             except SSRFBlocked as e:
-                self.stats["ssrfBlocked"] += 1
+                self._inc("ssrfBlocked")
                 return None, f"ssrf: {e}"
             except requests.RequestException as e:
                 last_err = f"network: {type(e).__name__}"
                 if attempt < self.max_retries:
-                    self.stats["retries"] += 1
+                    self._inc("retries")
                     self._sleep(min(self.max_backoff, self.backoff_base * 2 ** attempt))
                     continue
                 return None, last_err
@@ -165,7 +178,7 @@ class PoliteCrawler:
                 if wait is None:
                     wait = min(self.max_backoff, self.backoff_base * 2 ** attempt)
                 resp.close()
-                self.stats["retries"] += 1
+                self._inc("retries")
                 if self.log:
                     self.log.info(f"HTTP {resp.status_code} {url}: retry in {wait:.1f}s")
                 self._sleep(wait)
@@ -190,12 +203,12 @@ class PoliteCrawler:
                 if reason == "unresolvable host":
                     res.error = "dns: unresolvable host"
                 else:
-                    self.stats["ssrfBlocked"] += 1
+                    self._inc("ssrfBlocked")
                 return res
             self._host_setup(urlparse(current).hostname or "")
             allowed, why = self.robots.allowed(current)
             if not allowed:
-                self.stats["robotsBlocked"] += 1
+                self._inc("robotsBlocked")
                 res.final_url, res.error, res.blocked = current, f"robots: {why}", True
                 return res
             self._apply_crawl_delay(current, self.robots.get(current))
@@ -231,7 +244,9 @@ class PoliteCrawler:
                             res.error = f"too-large: > {limit} bytes"
                             return res
                     res.body = bytes(buf)
-                    self.stats["bytes"] += len(buf)
+                    self._inc("bytes", len(buf))
+                    if self.render and res.ok and res.is_html:
+                        self._render_into(res)
                 return res
             finally:
                 resp.close()
@@ -239,49 +254,117 @@ class PoliteCrawler:
         res.error = "too-many-redirects"
         return res
 
+    def _render_into(self, res) -> None:
+        """Replace the body with the DOM after scripts ran. The page URL already passed
+        the SSRF and robots.txt gates above; the browser's own requests go through the
+        filtering proxy (ww_scraper/proxy.py), which refuses private addresses."""
+        from .render import RenderError, render_dom
+        host = urlparse(res.final_url).hostname or ""
+        self.session.limiter.wait(host)          # the render is a second visit: space it
+        self._inc("requests")
+        try:
+            html = render_dom(res.final_url, allow_loopback=self.allow_loopback,
+                              wait_ms=self.render_wait_ms, max_bytes=self.max_bytes)
+        except RenderError as e:
+            self._inc("renderFailed")
+            if self.log:
+                self.log.warning(f"render failed for {res.final_url}: {e}; using the raw HTML")
+            return
+        res.body = html.encode("utf-8")
+        res.rendered = True
+        self._inc("rendered")
+
     # -- crawl ------------------------------------------------------------------------
     def crawl(self, start_urls, on_page, *, max_pages: int = 50, max_depth: int = 2,
               same_origin: bool = True, include=None, exclude=None, queue=None,
-              enqueue_links: bool = True):
+              enqueue_links: bool = True, concurrency: int = None):
         """Breadth-first crawl through a (durable) request queue.
 
         on_page(result, request, doc) is called for every processed request; doc is the
         parsed page (ww_scraper.extract.Page) for successful HTML responses, else None.
         Links are followed only within scope (same origin by default, include/exclude
-        globs on the full URL), up to max_depth, and never past max_pages in total."""
+        globs on the full URL), up to max_depth, and never past max_pages in total.
+        concurrency > 1 fetches several pages at once; requests to one host stay spaced
+        by the rate limiter, so it only helps when the crawl spans several hosts or the
+        interval is short."""
         from .extract import parse_html
 
         queue = queue or (self.ctx.queue if self.ctx else MemoryRequestQueue())
+        workers = max(1, int(concurrency or self.default_concurrency))
         origins = {origin_of(u) for u in start_urls}
         for u in start_urls:
             queue.add(urldefrag(u)[0], depth=0)
         processed = queue.handled_count
-        while processed < max_pages:
-            if self.ctx is not None:
-                self.ctx.check_abort()
-            req = queue.fetch_next()
-            if req is None:
-                break
-            try:
-                res = self.fetch(req["url"])
-            except Exception:
-                queue.reclaim(req)
-                raise
+
+        def work(req):
+            res = self.fetch(req["url"])
             doc = None
             if res.ok and res.is_html:
                 doc = parse_html(res.text(), res.final_url or req["url"])
-                self.stats["pages"] += 1
+                self._inc("pages")
+            return res, doc
+
+        def finish(req, res, doc):
             if req.get("depth", 0) == 0 and res.final_url:
                 origins.add(origin_of(res.final_url))
             on_page(res, req, doc)
             queue.mark_handled(req, error=res.error)
-            processed += 1
             if (enqueue_links and doc is not None and req.get("depth", 0) < max_depth
                     and not doc.nofollow and "nofollow" not in res.headers.get("x-robots-tag", "")):
                 for link in doc.links:
                     target = urldefrag(link["url"])[0]
                     if self.in_scope(target, origins, same_origin, include, exclude):
                         queue.add(target, depth=req.get("depth", 0) + 1)
+
+        if workers == 1:
+            while processed < max_pages:
+                if self.ctx is not None:
+                    self.ctx.check_abort()
+                req = queue.fetch_next()
+                if req is None:
+                    break
+                try:
+                    res, doc = work(req)
+                except Exception:
+                    queue.reclaim(req)
+                    raise
+                finish(req, res, doc)
+                processed += 1
+            return processed
+
+        # Several requests in flight, never two to one host at the same moment: the rate
+        # limiter reserves a slot per host. on_page and the queue are only touched here,
+        # in the calling thread, so actors need no locking.
+        inflight: dict = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers,
+                                                   thread_name_prefix="ww-scraper") as pool:
+            try:
+                while True:
+                    if self.ctx is not None:
+                        self.ctx.check_abort()
+                    while len(inflight) < workers and processed + len(inflight) < max_pages:
+                        req = queue.fetch_next()
+                        if req is None:
+                            break
+                        inflight[pool.submit(work, req)] = req
+                    if not inflight:
+                        break
+                    done, _ = concurrent.futures.wait(
+                        inflight, timeout=0.5, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for fut in done:
+                        req = inflight.pop(fut)
+                        try:
+                            res, doc = fut.result()
+                        except Exception:
+                            queue.reclaim(req)
+                            raise
+                        finish(req, res, doc)
+                        processed += 1
+            except BaseException:
+                for fut, req in inflight.items():
+                    fut.cancel()
+                    queue.reclaim(req)
+                raise
         return processed
 
     @staticmethod

@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 from urllib.parse import urldefrag
 
-from ..actor import MIN_INTERVAL, REDACT, START_URLS, Actor, _now
+from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor, _now
 
 SNAPSHOT_KEY = "SNAPSHOT"
 
@@ -31,6 +31,8 @@ class ChangeMonitor(Actor):
             "maxDepth": {"type": "integer", "default": 2, "minimum": 0, "maximum": 20},
             "includeUnchanged": {"type": "boolean", "default": False},
             "minIntervalSecs": MIN_INTERVAL,
+            "maxConcurrency": CONCURRENCY,
+            "render": RENDER,
             "redactPii": REDACT,
         },
     }

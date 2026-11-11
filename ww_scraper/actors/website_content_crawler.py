@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 
-from ..actor import MIN_INTERVAL, REDACT, START_URLS, Actor
+from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
 from ..storage import normalize_url
 
 GLOBS = {"type": "array", "items": {"type": "string"}, "default": []}
@@ -27,6 +27,8 @@ class WebsiteContentCrawler(Actor):
             "maxBytesPerPage": {"type": "integer", "default": 5_000_000, "minimum": 1024,
                                 "maximum": 50_000_000},
             "minIntervalSecs": MIN_INTERVAL,
+            "maxConcurrency": CONCURRENCY,
+            "render": RENDER,
             "redactPii": REDACT,
         },
     }

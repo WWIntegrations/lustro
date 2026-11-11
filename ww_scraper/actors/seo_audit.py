@@ -2,7 +2,7 @@
 (robots.txt, sitemap, /llms.txt). Issues carry a severity: error, warning or info."""
 from __future__ import annotations
 
-from ..actor import MIN_INTERVAL, REDACT, START_URLS, Actor
+from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
 from ..compliance import origin_of
 
 TITLE_RANGE = (10, 60)
@@ -96,6 +96,8 @@ class SeoAudit(Actor):
             "includeGlobs": {"type": "array", "items": {"type": "string"}, "default": []},
             "excludeGlobs": {"type": "array", "items": {"type": "string"}, "default": []},
             "minIntervalSecs": MIN_INTERVAL,
+            "maxConcurrency": CONCURRENCY,
+            "render": RENDER,
             "redactPii": REDACT,
         },
     }

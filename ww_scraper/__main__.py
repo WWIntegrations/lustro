@@ -20,7 +20,7 @@ import sys
 
 from . import search
 
-COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite"}
+COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite", "init", "runs", "report"}
 
 
 def _legacy(argv) -> int:
@@ -66,6 +66,19 @@ def _parser():
     common(r)
 
     sub.add_parser("actors", help="list actors")
+
+    i = sub.add_parser("init", help="write a starting point for your own actor (one .py file)")
+    i.add_argument("name", help="actor name, e.g. price-watch")
+    i.add_argument("--dir", default=".")
+
+    rs = sub.add_parser("runs", help="list runs in the storage directory")
+    rs.add_argument("--storage", default=None)
+    rs.add_argument("--limit", type=int, default=20)
+
+    rp = sub.add_parser("report", help="write a self-contained HTML report of a run")
+    rp.add_argument("run_id")
+    rp.add_argument("--out", default=None, help="output file (default: <storage>/reports/<run-id>.html)")
+    rp.add_argument("--storage", default=None)
 
     e = sub.add_parser("export", help="export a dataset")
     e.add_argument("dataset")
@@ -117,6 +130,39 @@ def main(argv=None) -> int:
             print(f"{act.name:26s} {act.description}\n{'':26s} input: {fields}")
         return 0
 
+    if a.cmd == "init":
+        from .plugins import PluginError, scaffold
+        try:
+            path = scaffold(a.name, a.dir)
+        except (PluginError, OSError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(f"wrote {path}\nrun it:  ww-scraper run {path} --input '{{\"startUrls\": [\"https://example.com/\"]}}'")
+        return 0
+
+    if a.cmd == "runs":
+        runs = Storage(a.storage).list_runs()[::-1][: max(1, a.limit)]
+        for r in runs:
+            print(f"{r.get('id', ''):26s} {r.get('actId', ''):24s} {r.get('status', ''):10s} "
+                  f"{r.get('itemCount', 0):6d} items  {r.get('startedAt') or ''}")
+        if not runs:
+            print("no runs yet")
+        return 0
+
+    if a.cmd == "report":
+        from .report import build_report
+        from .storage import valid_id
+        storage = Storage(a.storage)
+        if not valid_id(a.run_id) or storage.load_run(a.run_id) is None:
+            print(f"unknown run: {a.run_id} (see `ww-scraper runs`)", file=sys.stderr)
+            return 2
+        out = a.out or os.path.join(str(storage.root), "reports", f"{a.run_id}.html")
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write(build_report(storage, a.run_id))
+        print(out)
+        return 0
+
     if a.cmd == "export":
         body, _ = Storage(a.storage).dataset(a.dataset).export(a.format)
         sys.stdout.write(body.decode("utf-8"))
@@ -162,6 +208,13 @@ def main(argv=None) -> int:
         return 0
 
     # run
+    from .plugins import PluginError, is_actor_path, load_actor_file, register
+    if is_actor_path(a.actor):
+        try:
+            a.actor = register(load_actor_file(a.actor)).name
+        except PluginError as e:
+            print(str(e), file=sys.stderr)
+            return 2
     if get_actor(a.actor) is None:
         print(f"unknown actor: {a.actor} (see `ww-scraper actors`)", file=sys.stderr)
         return 2
