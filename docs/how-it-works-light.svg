@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 992 248" width="992" height="248" role="img" aria-labelledby="t d">
-<title id="t">How lustro works</title><desc id="d">lustro reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine.</desc>
+<title id="t">How ww-scraper works</title><desc id="d">ww-scraper reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine.</desc>
 <style>:root{--tlo:#FDFFF5;--tekst:#050507;--linia:#55555A;--strefa:#55555A;--wezel:#FFFFFF;--wezel-tekst:#050507;--akcent:#322DB8;}text{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;fill:var(--tekst)}.n{font-size:13px;font-weight:600;fill:var(--wezel-tekst)}.p{font-size:11px;fill:var(--wezel-tekst)}.s{font-size:12px;fill:var(--strefa)}.tt{font-size:16px;font-weight:700}.wz{fill:var(--wezel);stroke:var(--linia);stroke-width:1.5}.bram{stroke:var(--akcent);stroke-width:3}.mod{stroke-dasharray:0}.st{fill:none;stroke:var(--strefa);stroke-width:1.5;stroke-dasharray:6 4}.kr{stroke:var(--linia);stroke-width:1.5;fill:none}.gr{stroke:var(--akcent);stroke-width:2.5}.gt{fill:var(--akcent)}</style>
 <rect width="992" height="248" fill="#FDFFF5"/>
-<text class="tt" x="40" y="32">How lustro works</text>
+<text class="tt" x="40" y="32">How ww-scraper works</text>
 <g><rect class="st" x="16" y="72" width="216" height="160" rx="6"/><text class="s" x="26" y="88">Internet</text></g>
 <g><rect class="st" x="264" y="72" width="712" height="160" rx="6"/><text class="s" x="274" y="88">Your machine</text></g>
 <path class="kr" d="M208 152H280"/><path class="gt" d="M288 152l-9 -5v10z"/>

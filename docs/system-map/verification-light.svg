@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 744 248" width="744" height="248" role="img" aria-labelledby="t d">
+<title id="t">Offline test loop</title><desc id="d">A bundled local site serves robots rules, redirects, a redirect into a private address, rate limit answers and feeds. The test suite runs every actor against it offline, and CI repeats this on each push.</desc>
+<style>:root{--tlo:#FDFFF5;--tekst:#050507;--linia:#55555A;--strefa:#55555A;--wezel:#FFFFFF;--wezel-tekst:#050507;--akcent:#322DB8;}text{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;fill:var(--tekst)}.n{font-size:13px;font-weight:600;fill:var(--wezel-tekst)}.p{font-size:11px;fill:var(--wezel-tekst)}.s{font-size:12px;fill:var(--strefa)}.tt{font-size:16px;font-weight:700}.wz{fill:var(--wezel);stroke:var(--linia);stroke-width:1.5}.bram{stroke:var(--akcent);stroke-width:3}.mod{stroke-dasharray:0}.st{fill:none;stroke:var(--strefa);stroke-width:1.5;stroke-dasharray:6 4}.kr{stroke:var(--linia);stroke-width:1.5;fill:none}.gr{stroke:var(--akcent);stroke-width:2.5}.gt{fill:var(--akcent)}</style>
+<rect width="744" height="248" fill="#FDFFF5"/>
+<text class="tt" x="40" y="32">Offline test loop</text>
+<g><rect class="st" x="16" y="72" width="216" height="160" rx="6"/><text class="s" x="26" y="88">Fixture</text></g>
+<g><rect class="st" x="264" y="72" width="464" height="160" rx="6"/><text class="s" x="274" y="88">Checks</text></g>
+<path class="kr" d="M208 152H280"/><path class="gt" d="M288 152l-9 -5v10z"/>
+<path class="gr" d="M248 102V202"/>
+<path class="kr" d="M456 152H528"/><path class="gt" d="M536 152l-9 -5v10z"/>
+<g data-id="site" data-typ="usluga"><rect class="wz" x="40" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="124" y="144" text-anchor="middle">Bundled test site</text>
+<text class="p" x="124" y="178" text-anchor="middle">127.0.0.1 only</text></g>
+<g data-id="tests" data-typ="bramka"><rect class="wz bram" x="288" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="372" y="144" text-anchor="middle">pytest suite</text>
+<text class="p" x="372" y="178" text-anchor="middle">every compliance path</text></g>
+<g data-id="ci" data-typ="bramka"><rect class="wz bram" x="536" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="620" y="144" text-anchor="middle">GitHub Actions</text>
+<text class="p" x="620" y="178" text-anchor="middle">push and pull request</text></g>
+</svg>
