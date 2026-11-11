@@ -35,7 +35,8 @@ footer{margin-top:40px;color:var(--muted);font-size:13px}
 """
 
 _STAT_LABELS = [("items", "items"), ("pages", "pages parsed"), ("requests", "requests"),
-                ("retries", "retries"), ("robotsBlocked", "refused by robots.txt"),
+                ("retries", "retries"), ("throttled", "slowed down for an overloaded host"),
+                ("robotsBlocked", "refused by robots.txt"),
                 ("ssrfBlocked", "refused by SSRF guard"), ("failed", "failed"),
                 ("rendered", "rendered"), ("bytes", "bytes read"), ("durationMillis", "ms")]
 

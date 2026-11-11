@@ -214,7 +214,7 @@ class RunContext:
         self.failures: list = []
         self.stats = {"requests": 0, "retries": 0, "robotsBlocked": 0, "ssrfBlocked": 0,
                       "failed": 0, "pages": 0, "bytes": 0, "items": 0, "rendered": 0,
-                      "renderFailed": 0}
+                      "renderFailed": 0, "throttled": 0}
 
     @property
     def aborted(self) -> bool:
