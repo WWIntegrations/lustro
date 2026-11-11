@@ -11,7 +11,7 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
     GET  /v2/actor-runs
     GET  /v2/actor-runs/<id>
     POST /v2/actor-runs/<id>/abort
-    GET  /v2/datasets/<id>/items?format=json|jsonl|csv[&offset=&limit=]
+    GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html[&offset=&limit=&fields=a,b]
     GET  /v2/key-value-stores/<id>/records/<key>
 """
 from __future__ import annotations
@@ -170,10 +170,17 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 offset = int(q.get("offset", 0))
                 limit = int(q["limit"]) if "limit" in q else None
-                body, ctype = st.dataset(did).export(q.get("format", "json"), offset, limit)
+                fields = [f.strip() for f in q["fields"].split(",")] if q.get("fields") else None
+                fmt = q.get("format", "json")
+                body, ctype = st.dataset(did).export(fmt, offset, limit, fields)
             except (ValueError, StorageError) as e:
                 return self._error(400, "invalid-request", str(e))
-            return self._send(200, body, ctype)
+            extra = {}
+            if fmt == "html":
+                extra["Content-Security-Policy"] = "sandbox"  # scraped values, shown never run
+            if fmt == "xlsx":
+                extra["Content-Disposition"] = f'attachment; filename="{did}.xlsx"'
+            return self._send(200, body, ctype, extra)
         m = re.fullmatch(r"/v2/key-value-stores/([^/]+)/records/([^/]+)", path)
         if m:
             sid, key = m.group(1), unquote(m.group(2))

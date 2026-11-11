@@ -2,7 +2,7 @@
 
     ww-scraper run <actor> --input '<json>' [--storage DIR] [--resume RUN_ID] [--webhook URL]
     ww-scraper actors                     list actors and their input fields
-    ww-scraper export <dataset-id> [--format json|jsonl|csv]
+    ww-scraper export <dataset-id> [--format json|jsonl|csv|xlsx|xml|html] [--fields a,b] [--out FILE]
     ww-scraper serve [--port 8765]        local API on 127.0.0.1
     ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
     ww-scraper testsite [--port 8766]     local fixture website for demos/tests
@@ -82,7 +82,9 @@ def _parser():
 
     e = sub.add_parser("export", help="export a dataset")
     e.add_argument("dataset")
-    e.add_argument("--format", default="json", choices=["json", "jsonl", "csv"])
+    e.add_argument("--format", default="json", choices=["json", "jsonl", "csv", "xlsx", "xml", "html"])
+    e.add_argument("--fields", default=None, help="comma-separated keys to keep, in this order")
+    e.add_argument("--out", default=None, help="write to this file (xlsx needs it unless stdout is redirected)")
     e.add_argument("--storage", default=None)
 
     s = sub.add_parser("serve", help="local API (127.0.0.1 only)")
@@ -164,8 +166,18 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "export":
-        body, _ = Storage(a.storage).dataset(a.dataset).export(a.format)
-        sys.stdout.write(body.decode("utf-8"))
+        fields = [f.strip() for f in a.fields.split(",")] if a.fields else None
+        body, _ = Storage(a.storage).dataset(a.dataset).export(a.format, fields=fields)
+        if a.out:
+            with open(a.out, "wb") as fh:
+                fh.write(body)
+            print(a.out)
+        elif a.format == "xlsx" and sys.stdout.isatty():
+            print("xlsx is binary: pass --out FILE or redirect stdout", file=sys.stderr)
+            return 2
+        else:
+            sys.stdout.buffer.write(body)
+            sys.stdout.flush()
         return 0
 
     if a.cmd == "schedule":
