@@ -81,6 +81,12 @@ How this compares with a hosted platform, including what it does not do:
 [docs/comparison.md](docs/comparison.md). The decisions behind it and the defects found on the
 way: [docs/case-study.md](docs/case-study.md).
 
+Measured against Crawlee, a widely used open-source crawler, on one hostile local site
+([bench/safety](bench/safety/README.md)): in default configuration Crawlee fetched a page
+robots.txt disallows, tried to connect to the cloud metadata address after a redirect,
+retried a 429 within 10 ms of `Retry-After: 4`, and exported a scraped formula live into
+CSV. ww-scraper did none of the four.
+
 ## Platform primitives
 
 Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `platform_storage`:

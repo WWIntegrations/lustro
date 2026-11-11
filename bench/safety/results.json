@@ -1,0 +1,37 @@
+{
+  "environment": {
+    "python": "3.12.13",
+    "node": "v22.23.4",
+    "os": "macOS-26.1",
+    "ww_scraper": "0.6.0",
+    "crawlee": "3.18.2",
+    "retry_after_secs": 4
+  },
+  "ww-scraper (defaults)": {
+    "fetched_page_disallowed_by_robots": false,
+    "redirect_to_cloud_metadata": {
+      "refused_before_connecting": true,
+      "detail": "ssrf: non-public address (SSRF guard)"
+    },
+    "secs_before_retry_after_429": 4.01,
+    "csv_cell_for_formula_value": "'=HYPERLINK(\"http://evil.example\",\"click\")"
+  },
+  "Crawlee CheerioCrawler (defaults)": {
+    "fetched_page_disallowed_by_robots": true,
+    "redirect_to_cloud_metadata": {
+      "refused_before_connecting": false,
+      "detail": "connect EHOSTDOWN 169.254.169.254:80 - Local (redacted)"
+    },
+    "secs_before_retry_after_429": 0.01,
+    "csv_cell_for_formula_value": "=HYPERLINK(\"http://evil.example\",\"click\")"
+  },
+  "Crawlee CheerioCrawler (respectRobotsTxtFile: true)": {
+    "fetched_page_disallowed_by_robots": false,
+    "redirect_to_cloud_metadata": {
+      "refused_before_connecting": false,
+      "detail": "connect EHOSTDOWN 169.254.169.254:80 - Local (redacted)"
+    },
+    "secs_before_retry_after_429": 0.01,
+    "csv_cell_for_formula_value": "=HYPERLINK(\"http://evil.example\",\"click\")"
+  }
+}

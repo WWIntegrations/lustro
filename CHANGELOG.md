@@ -13,6 +13,9 @@
     scripts; the API also serves it with `Content-Security-Policy: sandbox`.
   - `fields` keeps only the named keys, in that order, in every format.
 - Tests: 145 to 149.
+- `bench/safety`: ww-scraper and Crawlee 3.18.2 against one hostile local site, measured
+  from the server's request log (robots.txt, redirect to the metadata address, Retry-After,
+  CSV formulas). Results and method in `bench/safety/README.md`.
 
 ## 0.5.0 (2026-11-12)
 
