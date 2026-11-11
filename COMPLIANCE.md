@@ -1,8 +1,8 @@
 # Compliance
 
-Lustro is the *compliant* alternative to aggressive scraping stacks. This document maps
-the legal and ethical risk criteria for data collection to exactly how Lustro handles each
-one. The rule throughout: **when something is not clearly permitted, Lustro refuses it** -
+ww-scraper is the *compliant* alternative to aggressive scraping stacks. This document maps
+the legal and ethical risk criteria for data collection to exactly how ww-scraper handles each
+one. The rule throughout: **when something is not clearly permitted, ww-scraper refuses it** -
 it never disguises a request to get around a control.
 
 ## Criteria
@@ -12,7 +12,7 @@ it never disguises a request to get around a control.
   licenses, public metadata.
 - **Risky:** personal data (GDPR/RODO) without a legal basis, or confidential data behind
   a login.
-- **Lustro:** queries only public, unauthenticated or official-key APIs (Openverse,
+- **ww-scraper:** queries only public, unauthenticated or official-key APIs (Openverse,
   Wikimedia Commons, Pexels) and public pages. It never logs in, never touches
   login-gated content, and collects media, page content and technical metadata - not
   personal profiles.
@@ -27,8 +27,8 @@ it never disguises a request to get around a control.
   under their license, with attribution.
 - **Risky:** copying unique content (whole articles, image databases) and republishing it
   as your own.
-- **Lustro:** every result carries its `license`, `license_url`, and `author`, so
-  downstream use can honor the terms. Lustro returns references and metadata; it does not
+- **ww-scraper:** every result carries its `license`, `license_url`, and `author`, so
+  downstream use can honor the terms. ww-scraper returns references and metadata; it does not
   strip licenses or present others' work as original.
 
 ### 3. Terms of Service / robots.txt
@@ -36,7 +36,7 @@ it never disguises a request to get around a control.
   `robots.txt`.
 - **Risky:** ignoring a platform's ToS that forbids scraping (e.g. LinkedIn, Meta) -
   account/IP bans or civil suits.
-- **Lustro:** uses official APIs, and every page fetch in v0.2 goes through
+- **ww-scraper:** uses official APIs, and every page fetch in v0.2 goes through
   `PoliteCrawler`, which checks robots.txt for the origin of **every redirect hop**
   before requesting it. There is no option to skip robots.txt. robots.txt that answers
   401/403 means "everything disallowed"; one that cannot be read (5xx, network error)
@@ -44,29 +44,29 @@ it never disguises a request to get around a control.
   not stored as content, and `nofollow` pages are not expanded. Any page-based source
   **must** pass these checks before fetching, and a source whose operator forbids automated
   access is simply **not added** (for example, a site returning `403 "automated access
-  blocked"` is left out rather than worked around). Lustro does not collect from
+  blocked"` is left out rather than worked around). ww-scraper does not collect from
   ToS-protected, login-gated platforms.
 
 ### 4. Server stability
 - **Permitted:** collecting with intervals/rate limits that don't burden the target.
 - **Risky:** aggressive collection that slows or hangs the site (can be treated as
   DoS/DDoS).
-- **Lustro:** `make_session()` returns a `PoliteSession` that enforces a per-host minimum
+- **ww-scraper:** `make_session()` returns a `PoliteSession` that enforces a per-host minimum
   interval between requests. No source can hammer a host, and the limit is a parameter,
   not a promise.
 - **v0.2:** crawls are sequential; the per-host interval has a floor of 0.5 s (only
   loopback test hosts under the explicit test switch may go lower) and is raised by
   robots.txt `Crawl-delay` (capped at 30 s). 429 and 5xx responses are retried with
   backoff that honours `Retry-After`; if a server asks to wait longer than the cap,
-  Lustro stops instead of retrying early. Runs are bounded by `maxPages`, `maxDepth`
+  ww-scraper stops instead of retrying early. Runs are bounded by `maxPages`, `maxDepth`
   and a byte limit per response.
 
 ### 5. No human-impersonation / anti-bot evasion (hard line)
 - **Risky pattern:** bots configured to look like real people - spoofed browser headers,
   simulated mouse movement, **rotating residential IPs / proxies** - to defeat anti-bot
   systems (Cloudflare, CAPTCHA).
-- **Lustro:** does **none** of this, by design. No residential/rotating proxies, no
-  identity rotation, no CAPTCHA solving, no headless-browser evasion. Lustro identifies
+- **ww-scraper:** does **none** of this, by design. No residential/rotating proxies, no
+  identity rotation, no CAPTCHA solving, no headless-browser evasion. ww-scraper identifies
   itself honestly in its `User-Agent` (with a contact URL) and backs off when limited.
   This is the single line that separates a collector you can run in the open from one you
   cannot.
@@ -90,14 +90,14 @@ it never disguises a request to get around a control.
   DOCTYPE/ENTITY declarations are refused (no XXE, no entity expansion); size is capped
   at 50 MB, also after gzip.
 - The local API binds to a loopback IP only and always requires a Bearer token
-  (`--token`, `LUSTRO_API_TOKEN`, or a random one printed once at start; only an
+  (`--token`, `WW_SCRAPER_API_TOKEN`, or a random one printed once at start; only an
   explicit `--no-auth` disables it), compared in constant time. It rejects non-loopback
   `Host` headers (DNS rebinding) and non-loopback `Origin` headers (browser CSRF),
   accepts POST bodies only as `application/json`, and serves stored records with
   `Content-Security-Policy: sandbox` and `nosniff`.
-- Webhooks go only to allowlisted hosts (`LUSTRO_WEBHOOK_HOSTS`), over HTTPS, without
-  redirects, signed with HMAC-SHA256 (`LUSTRO_WEBHOOK_SECRET`).
-- `lustro schedule` prints cron/launchd entries; it never installs persistence.
+- Webhooks go only to allowlisted hosts (`WW_SCRAPER_WEBHOOK_HOSTS`), over HTTPS, without
+  redirects, signed with HMAC-SHA256 (`WW_SCRAPER_WEBHOOK_SECRET`).
+- `ww-scraper schedule` prints cron/launchd entries; it never installs persistence.
 
 ### 7. Out of scope by decision
 No residential or rotating proxies, no identity rotation, no CAPTCHA solving, no
@@ -105,6 +105,6 @@ anti-bot evasion, no multi-tenant hosting, no scraping through MCP/agent tools.
 
 ## Summary
 
-Lustro trades reach for trust: it will not touch a source that forbids automated access,
+ww-scraper trades reach for trust: it will not touch a source that forbids automated access,
 will not impersonate a human, and will not overload a server - and in return it produces
 data you can actually use and publish without a terms-of-service fight.

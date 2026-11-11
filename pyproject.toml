@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lustro"
+name = "ww-scraper"
 version = "0.2.0"
 description = "Compliant, open-source local mirror of Apify-style scraping primitives (datasets, key-value stores, request queues, actors) plus a licensed media collector. robots.txt always, no evasion."
 readme = "README.md"
@@ -14,10 +14,10 @@ keywords = ["scraping", "crawler", "apify", "robots-txt", "seo", "llms-txt", "co
 dependencies = ["requests>=2.31", "Pillow>=10.0"]
 
 [project.scripts]
-lustro = "lustro.__main__:main"
+ww-scraper = "ww_scraper.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/WWIntegrations/lustro"
+Homepage = "https://github.com/WWIntegrations/ww-scraper"
 
 [tool.setuptools.packages.find]
-include = ["lustro*"]
+include = ["ww_scraper*"]

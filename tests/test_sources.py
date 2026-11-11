@@ -1,6 +1,6 @@
 """Offline structural tests for the source registry - no network required."""
-from lustro.models import Resource
-from lustro.sources import SOURCES, get_source
+from ww_scraper.models import Resource
+from ww_scraper.sources import SOURCES, get_source
 
 
 def test_all_sources_declare_contract():

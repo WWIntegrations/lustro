@@ -1,7 +1,7 @@
 """Compliance primitives: User-Agent, host allowlist, SSRF guard, robots.txt, rate limit,
 Retry-After parsing and PII redaction.
 
-Lustro never evades access controls. These helpers put that stance in code: a request
+ww-scraper never evades access controls. These helpers put that stance in code: a request
 that is not clearly permitted is refused, never disguised.
 """
 from __future__ import annotations
@@ -21,9 +21,9 @@ import requests.adapters
 
 from ._version import __version__
 
-_CONTACT = os.environ.get("LUSTRO_CONTACT", "https://github.com/WWIntegrations/lustro")
-USER_AGENT = f"Lustro/{__version__} (+{_CONTACT}) python-requests"
-ROBOTS_TOKEN = "Lustro"
+_CONTACT = os.environ.get("WW_SCRAPER_CONTACT", "https://github.com/WWIntegrations/ww-scraper")
+USER_AGENT = f"ww-scraper/{__version__} (+{_CONTACT}) python-requests"
+ROBOTS_TOKEN = "ww-scraper"
 
 TIMEOUT = 30
 MAX_BYTES = 15 * 1024 * 1024
@@ -37,7 +37,7 @@ _REDIRECT_CODES = (301, 302, 303, 307, 308)
 
 
 def make_session(min_interval: float = 1.0) -> requests.Session:
-    """Polite session: sets the Lustro UA and enforces a per-host minimum interval between
+    """Polite session: sets the ww-scraper UA and enforces a per-host minimum interval between
     requests, so a run never overloads a source (the 'server stability' rule). See
     PoliteSession below."""
     return PoliteSession(min_interval)
@@ -187,7 +187,7 @@ def check_target(url: str, allow_loopback: bool = False):
 # opened to that validated IP (Host header and TLS SNI stay the original name), and the
 # peer address is checked again after connecting. Each redirect hop is a new request and
 # goes through the same path, so a resolver that changes its answer between the early
-# check and the connection cannot steer Lustro into a private network.
+# check and the connection cannot steer ww-scraper into a private network.
 
 def _pinned_classes(allow_loopback: bool):
     from urllib3.connection import HTTPConnection, HTTPSConnection
@@ -321,12 +321,12 @@ class RobotsEntry:
 
 
 class RobotsCache:
-    """robots.txt per origin, fetched once with the honest Lustro UA through the given
+    """robots.txt per origin, fetched once with the honest ww-scraper UA through the given
     (polite) session. Every hop of the robots.txt fetch passes the SSRF check.
 
     Interpretation (conservative): 2xx -> rules apply; 401/403 -> everything disallowed;
     other 4xx -> no robots.txt, everything allowed; 5xx or network error -> host treated
-    as unavailable (disallowed). When it is not clearly permitted, Lustro does not fetch.
+    as unavailable (disallowed). When it is not clearly permitted, ww-scraper does not fetch.
     """
 
     def __init__(self, session, allow_loopback: bool = False, timeout: float = 15,
@@ -449,7 +449,7 @@ class RateLimiter:
 
 class PoliteSession(requests.Session):
     """A requests.Session that enforces a per-host minimum interval between requests, so
-    Lustro stays within polite rate limits and never hammers a source. This is how the
+    ww-scraper stays within polite rate limits and never hammers a source. This is how the
     'server stability' compliance rule is enforced in code, not just promised."""
 
     def __init__(self, min_interval: float = 1.0):

@@ -7,14 +7,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 import requests
 
-from lustro import webhooks
-from lustro.api import LustroAPI
-from lustro.schedule import cron_line, launchd_plist, render
+from ww_scraper import webhooks
+from ww_scraper.api import ScraperAPI
+from ww_scraper.schedule import cron_line, launchd_plist, render
 
 
 @pytest.fixture
 def api(storage):
-    a = LustroAPI(storage, port=0, token="s3cret", allow_loopback=True, lang="pl")
+    a = ScraperAPI(storage, port=0, token="s3cret", allow_loopback=True, lang="pl")
     a.start()
     yield a
     a.shutdown()
@@ -26,7 +26,7 @@ def _h(token="s3cret"):
 
 def test_api_binds_loopback_only(storage):
     with pytest.raises(ValueError):
-        LustroAPI(storage, host="0.0.0.0", port=0)
+        ScraperAPI(storage, host="0.0.0.0", port=0)
 
 
 def test_api_auth_and_host_guard(api):
@@ -74,8 +74,8 @@ def test_api_input_errors_in_polish(api):
 
 
 def test_api_token_required_by_default(storage, monkeypatch):
-    monkeypatch.delenv("LUSTRO_API_TOKEN", raising=False)
-    a = LustroAPI(storage, port=0)
+    monkeypatch.delenv("WW_SCRAPER_API_TOKEN", raising=False)
+    a = ScraperAPI(storage, port=0)
     a.start()
     try:
         assert a.token_generated and len(a.token) >= 32
@@ -83,7 +83,7 @@ def test_api_token_required_by_default(storage, monkeypatch):
         assert requests.get(a.url + "/v2/acts", headers=_h(a.token), timeout=5).status_code == 200
     finally:
         a.shutdown()
-    b = LustroAPI(storage, port=0, no_auth=True)
+    b = ScraperAPI(storage, port=0, no_auth=True)
     b.start()
     try:
         assert requests.get(b.url + "/v2/acts", timeout=5).status_code == 200
@@ -124,8 +124,8 @@ def test_webhook_signed_and_allowlisted(storage, monkeypatch, api, site):
     srv = HTTPServer(("127.0.0.1", 0), _Receiver)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     hook = f"http://127.0.0.1:{srv.server_address[1]}/hook"
-    monkeypatch.setenv("LUSTRO_WEBHOOK_HOSTS", "127.0.0.1")
-    monkeypatch.setenv("LUSTRO_WEBHOOK_SECRET", "whsec")
+    monkeypatch.setenv("WW_SCRAPER_WEBHOOK_HOSTS", "127.0.0.1")
+    monkeypatch.setenv("WW_SCRAPER_WEBHOOK_SECRET", "whsec")
     _Receiver.got = []
     wh = base64.b64encode(json.dumps([{"requestUrl": hook,
                                        "eventTypes": ["ACTOR.RUN.SUCCEEDED"]}]).encode()).decode()
@@ -137,8 +137,8 @@ def test_webhook_signed_and_allowlisted(storage, monkeypatch, api, site):
             break
         threading.Event().wait(0.05)
     headers, body = _Receiver.got[0]
-    assert webhooks.verify("whsec", headers["X-Lustro-Timestamp"], body, headers["X-Lustro-Signature"])
-    assert not webhooks.verify("other", headers["X-Lustro-Timestamp"], body, headers["X-Lustro-Signature"])
+    assert webhooks.verify("whsec", headers["X-WW-Scraper-Timestamp"], body, headers["X-WW-Scraper-Signature"])
+    assert not webhooks.verify("other", headers["X-WW-Scraper-Timestamp"], body, headers["X-WW-Scraper-Signature"])
     payload = json.loads(body)
     assert payload["eventType"] == "ACTOR.RUN.SUCCEEDED" and payload["resource"]["actId"] == "sitemap"
     srv.shutdown()
@@ -146,7 +146,7 @@ def test_webhook_signed_and_allowlisted(storage, monkeypatch, api, site):
 
 def test_webhook_refusals():
     p = {"x": 1}
-    assert webhooks.send("https://hooks.ex.com/a", p, secret="", allow_hosts={"hooks.ex.com"})[1].startswith("refused: LUSTRO_WEBHOOK_SECRET")
+    assert webhooks.send("https://hooks.ex.com/a", p, secret="", allow_hosts={"hooks.ex.com"})[1].startswith("refused: WW_SCRAPER_WEBHOOK_SECRET")
     assert "allowlist" in webhooks.send("https://evil.com/", p, secret="s", allow_hosts={"hooks.ex.com"})[1]
     assert "allowlist" in webhooks.send("https://evil.com/", p, secret="s", allow_hosts=set())[1]
     assert "https" in webhooks.send("http://hooks.ex.com/", p, secret="s", allow_hosts={"hooks.ex.com"})[1]
@@ -159,14 +159,14 @@ def test_webhook_refusals():
 
 def test_schedule_prints_cron_and_plist():
     line = cron_line("sitemap", '{"startUrls":["https://ex.com"]}', "0 6 * * 1", "/srv/l", "/usr/bin/python3")
-    assert line.startswith("0 6 * * 1 cd /srv/l && /usr/bin/python3 -m lustro run sitemap --input ")
+    assert line.startswith("0 6 * * 1 cd /srv/l && /usr/bin/python3 -m ww_scraper run sitemap --input ")
     assert "'{\"startUrls\":[\"https://ex.com\"]}'" in line
     pl = launchd_plist("sitemap", '{"a":"<&>"}', "30 6 * * 1,3", "/srv/l", "/usr/bin/python3")
     flat = "".join(pl.split())
     assert ("<key>StartCalendarInterval</key><array><dict><key>Minute</key><integer>30</integer>"
             "<key>Hour</key><integer>6</integer><key>Weekday</key><integer>1</integer></dict>") in flat
     assert "<key>Weekday</key><integer>3</integer>" in flat
-    assert "<string>/usr/bin/python3</string><string>-m</string><string>lustro</string>" in flat
+    assert "<string>/usr/bin/python3</string><string>-m</string><string>ww_scraper</string>" in flat
     assert "<string>{\"a\":\"&lt;&amp;&gt;\"}</string>" in flat
     assert "<key>StartInterval</key><integer>900</integer>" in "".join(
         launchd_plist("sitemap", "{}", "*/15 * * * *", "/srv/l").split())
@@ -177,7 +177,7 @@ def test_schedule_prints_cron_and_plist():
 
 
 def test_cli_run_actors_and_export(site, tmp_path, capsys):
-    from lustro.__main__ import main
+    from ww_scraper.__main__ import main
     st = str(tmp_path / "st")
     assert main(["actors"]) == 0
     assert "website-content-crawler" in capsys.readouterr().out

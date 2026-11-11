@@ -3,10 +3,10 @@ import gzip
 
 import pytest
 
-from lustro.actor import run_actor
-from lustro.actors.llms_txt import build_llms_txt, validate_llms_txt
-from lustro.actors.security_headers import grade_headers
-from lustro.actors.sitemap import SitemapError, parse_sitemap
+from ww_scraper.actor import run_actor
+from ww_scraper.actors.llms_txt import build_llms_txt, validate_llms_txt
+from ww_scraper.actors.security_headers import grade_headers
+from ww_scraper.actors.sitemap import SitemapError, parse_sitemap
 
 
 def _run(storage, name, inp):
@@ -28,7 +28,7 @@ def test_website_content_crawler(site, storage):
     rec, items, kv = _run(storage, "website-content-crawler", {"startUrls": [site.base + "/"]})
     by_url = {i["finalUrl"]: i for i in items}
     home = by_url[site.base + "/"]
-    assert home["title"] == "Lustro Test Site - home page" and home["lang"] == "pl"
+    assert home["title"] == "ww-scraper Test Site - home page" and home["lang"] == "pl"
     assert home["markdown"].startswith("# Welcome to the test site")
     assert "[email]" in home["markdown"] and "[phone]" in home["markdown"]
     assert "kontakt@example.com" not in home["markdown"]
@@ -142,7 +142,7 @@ def test_llms_txt_check(site, storage):
     _, items, _ = _run(storage, "llms-txt", {"startUrls": [site.base]})
     it = items[0]
     assert it["llmsTxt"]["present"] and it["llmsTxt"]["valid"]
-    assert it["llmsTxt"]["title"] == "Lustro Test Site"
+    assert it["llmsTxt"]["title"] == "ww-scraper Test Site"
     assert it["llmsTxt"]["linkCount"] == 3
     assert [s["optional"] for s in it["llmsTxt"]["sections"]] == [False, True]
     assert it["llmsFullTxt"]["present"] and it["llmsFullTxt"]["words"] > 3
@@ -152,7 +152,7 @@ def test_llms_txt_generate(site, storage):
     _, items, kv = _run(storage, "llms-txt", {"startUrls": [site.base + "/"], "mode": "generate"})
     text = kv.get("llms.txt")
     assert kv.get_record("llms.txt")[1].startswith("text/markdown")
-    assert text.startswith("# Lustro Test Site\n\n> A tiny local website")
+    assert text.startswith("# ww-scraper Test Site\n\n> A tiny local website")
     assert f"[About]({site.base}/about)" in text
     assert items[0]["check"]["valid"]
 
@@ -190,15 +190,15 @@ def test_link_checker(site, storage):
 
 
 def test_media_collector_wraps_search(storage, monkeypatch):
-    import lustro
-    from lustro.models import Resource
+    import ww_scraper
+    from ww_scraper.models import Resource
 
     def fake_search(query, sources=None, limit=12, verify=True, session=None):
         assert query == "koty" and sources == ["openverse"] and limit == 2
         return [Resource(source="openverse", title="Kot", url="https://api.openverse.org/x.jpg",
                          license="CC BY 4.0")]
 
-    monkeypatch.setattr(lustro, "search", fake_search)
+    monkeypatch.setattr(ww_scraper, "search", fake_search)
     rec = run_actor("media-collector", {"query": "koty", "sources": ["openverse"], "limit": 2},
                     storage)
     assert rec["status"] == "SUCCEEDED"

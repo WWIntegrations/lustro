@@ -1,14 +1,14 @@
-# Lustro
+# ww-scraper
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.svg">
-  <img src="docs/how-it-works-light.svg" alt="lustro reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine." width="100%">
+  <img src="docs/how-it-works-light.svg" alt="ww-scraper reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine." width="100%">
 </picture>
 
 Use it when you need to crawl sites, audit SEO and security headers, or collect licensed
 images on your own machine, without proxies, evasion or anything a site has not allowed.
 
-Lustro is a compliant, open-source local mirror of the useful primitives of commercial scraping
+ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (Apify-style datasets, key-value stores, request queues, actors, runs and a
 small HTTP API), plus seven ready actors and the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
@@ -21,23 +21,23 @@ Offline, against the bundled test site (needs Python 3.10+; the `--allow-loopbac
 for tests only, by default 127.0.0.1 and every private address are refused):
 
 ```bash
-git clone https://github.com/WWIntegrations/lustro && cd lustro
+git clone https://github.com/WWIntegrations/ww-scraper && cd ww-scraper
 python3 -m venv .venv && . .venv/bin/activate && pip install -e .
-lustro testsite --port 8766 &
-lustro run seo-audit --allow-loopback --storage /tmp/lustro-demo \
+ww-scraper testsite --port 8766 &
+ww-scraper run seo-audit --allow-loopback --storage /tmp/ww-scraper-demo \
   --input '{"startUrls": ["http://127.0.0.1:8766/"], "minIntervalSecs": 0}'
 ```
 
 Real output (exit code 0): the last lines are the run record, with `"status": "SUCCEEDED"`
-and `"itemCount": 6`; the items land in `/tmp/lustro-demo/datasets/<run-id>/items.jsonl`.
-The test site's `/private/secret` is disallowed by its `robots.txt`, so Lustro logs
+and `"itemCount": 6`; the items land in `/tmp/ww-scraper-demo/datasets/<run-id>/items.jsonl`.
+The test site's `/private/secret` is disallowed by its `robots.txt`, so ww-scraper logs
 `robots: disallowed by robots.txt` and does not fetch it.
 
-## Principles (what makes Lustro different)
+## Principles (what makes ww-scraper different)
 
 - **Official APIs or robots-allowed pages only.** Each source is an official API, or a
   public page explicitly allowed by its `robots.txt`, re-checked on every run.
-- **No evasion, ever.** Lustro never uses residential/rotating proxies, never rotates
+- **No evasion, ever.** ww-scraper never uses residential/rotating proxies, never rotates
   identities to dodge rate limits, never solves CAPTCHAs, never bypasses anti-bot
   measures. A source that asks automated clients to stay out (e.g. HTTP 403 "automated
   access blocked") is *skipped*, not worked around.
@@ -52,11 +52,11 @@ The test site's `/private/secret` is disallowed by its `robots.txt`, so Lustro l
   environment only.
 
 See [`COMPLIANCE.md`](COMPLIANCE.md) for how each risk criterion - data type (GDPR),
-copyright, ToS / robots.txt, server load, and no-evasion - maps to Lustro's behavior.
+copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's behavior.
 
 ## Platform primitives (v0.2)
 
-Stored under `./storage/` (or `$LUSTRO_STORAGE_DIR`), laid out like `apify_storage`:
+Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `apify_storage`:
 
 | Primitive      | What it is                                                              |
 |----------------|-------------------------------------------------------------------------|
@@ -87,26 +87,26 @@ metadata with the standard library only (`html.parser`).
 | `media-collector`         | the v0.1 sources below, as an actor                                 |
 
 ```bash
-lustro actors                                   # list actors and input fields
-lustro run seo-audit --input '{"startUrls": ["https://example.com/"], "maxPages": 10}'
-lustro run website-content-crawler --input-file input.json --print-items
-lustro run sitemap --resume <run-id>            # continue an interrupted run
-lustro export <dataset-id> --format csv
+ww-scraper actors                                   # list actors and input fields
+ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"], "maxPages": 10}'
+ww-scraper run website-content-crawler --input-file input.json --print-items
+ww-scraper run sitemap --resume <run-id>            # continue an interrupted run
+ww-scraper export <dataset-id> --format csv
 ```
 
 Try it offline against the bundled test site (the `--allow-loopback` switch is for
 tests only; by default 127.0.0.1 and every private address are refused):
 
 ```bash
-lustro testsite --port 8766 &
-lustro run seo-audit --allow-loopback --storage /tmp/lustro-demo \
+ww-scraper testsite --port 8766 &
+ww-scraper run seo-audit --allow-loopback --storage /tmp/ww-scraper-demo \
   --input '{"startUrls": ["http://127.0.0.1:8766/"], "minIntervalSecs": 0}'
 ```
 
 Python:
 
 ```python
-from lustro import run_actor
+from ww_scraper import run_actor
 rec = run_actor("link-checker", {"startUrls": ["https://example.com/"]})
 print(rec["status"], rec["itemCount"], rec["defaultDatasetId"])
 ```
@@ -114,8 +114,8 @@ print(rec["status"], rec["itemCount"], rec["defaultDatasetId"])
 ### Local API
 
 ```bash
-lustro serve --port 8765               # binds to 127.0.0.1 only
-# a Bearer token is always required: --token / $LUSTRO_API_TOKEN, otherwise a random
+ww-scraper serve --port 8765               # binds to 127.0.0.1 only
+# a Bearer token is always required: --token / $WW_SCRAPER_API_TOKEN, otherwise a random
 # one is generated and printed once at start; --no-auth disables it explicitly
 ```
 
@@ -133,17 +133,17 @@ Requests with a non-loopback `Host` header (DNS-rebinding guard) or a non-loopba
 
 ### Webhooks
 
-After a run, Lustro can POST `ACTOR.RUN.SUCCEEDED|FAILED|ABORTED` events (CLI
+After a run, ww-scraper can POST `ACTOR.RUN.SUCCEEDED|FAILED|ABORTED` events (CLI
 `--webhook URL`, or the API `webhooks` query parameter as base64 JSON
-`[{"requestUrl": ..., "eventTypes": [...]}]`). Only hosts in `LUSTRO_WEBHOOK_HOSTS`
+`[{"requestUrl": ..., "eventTypes": [...]}]`). Only hosts in `WW_SCRAPER_WEBHOOK_HOSTS`
 (comma separated) are contacted, over HTTPS, without following redirects, and only
-when `LUSTRO_WEBHOOK_SECRET` is set. Each request carries `X-Lustro-Timestamp` and
-`X-Lustro-Signature: sha256=HMAC_SHA256(secret, "<timestamp>." + body)`;
-`lustro.webhooks.verify()` checks it on the receiving side.
+when `WW_SCRAPER_WEBHOOK_SECRET` is set. Each request carries `X-WW-Scraper-Timestamp` and
+`X-WW-Scraper-Signature: sha256=HMAC_SHA256(secret, "<timestamp>." + body)`;
+`ww_scraper.webhooks.verify()` checks it on the receiving side.
 
 ### Scheduling
 
-`lustro schedule <actor> --cron '0 6 * * 1' --input '<json>'` only **prints** a crontab
+`ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'` only **prints** a crontab
 line and a launchd plist. Installing them is the operator's decision.
 
 ## Media sources (v0.1)
@@ -170,7 +170,7 @@ pip install -e .
 ## Usage
 
 ```python
-from lustro import search
+from ww_scraper import search
 
 for r in search("brutalist concrete architecture", sources=["openverse"], limit=12):
     print(r.title, "-", r.author, f"({r.license})", r.url, f"{r.width}x{r.height}")
@@ -179,18 +179,18 @@ for r in search("brutalist concrete architecture", sources=["openverse"], limit=
 CLI:
 
 ```bash
-python3 -m lustro "brutalist concrete architecture" --sources openverse --limit 12 --json
+python3 -m ww_scraper "brutalist concrete architecture" --sources openverse --limit 12 --json
 ```
 
 Set a contact for the User-Agent (polite crawling):
 
 ```bash
-export LUSTRO_CONTACT="https://github.com/<you>/lustro"
+export WW_SCRAPER_CONTACT="https://github.com/<you>/ww-scraper"
 ```
 
 ## Limitations
 
-### What Lustro deliberately does NOT do
+### What ww-scraper deliberately does NOT do
 
 Residential/rotating proxies, identity rotation to defeat rate limits, CAPTCHA solving,
 headless-browser anti-bot evasion, ignoring robots.txt (there is no switch for it),

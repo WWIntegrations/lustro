@@ -1,4 +1,4 @@
-"""PoliteCrawler: the only way Lustro actors fetch pages.
+"""PoliteCrawler: the only way ww-scraper actors fetch pages.
 
 Per request it enforces, in this order: scheme + SSRF check (on every redirect hop),
 robots.txt for the hop's origin (cached), a per-host minimum interval (raised by
@@ -246,7 +246,7 @@ class PoliteCrawler:
         """Breadth-first crawl through a (durable) request queue.
 
         on_page(result, request, doc) is called for every processed request; doc is the
-        parsed page (lustro.extract.Page) for successful HTML responses, else None.
+        parsed page (ww_scraper.extract.Page) for successful HTML responses, else None.
         Links are followed only within scope (same origin by default, include/exclude
         globs on the full URL), up to max_depth, and never past max_pages in total."""
         from .extract import parse_html

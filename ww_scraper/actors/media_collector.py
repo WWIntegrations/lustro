@@ -26,7 +26,7 @@ class MediaCollector(Actor):
     }
 
     def run(self, ctx):
-        from .. import search  # late import: lustro/__init__ imports the actor layer lazily
+        from .. import search  # late import: ww_scraper/__init__ imports the actor layer lazily
 
         inp = ctx.input
         unknown = [s for s in inp["sources"] if s not in SOURCES]

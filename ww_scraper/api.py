@@ -1,7 +1,7 @@
 """Local HTTP API with Apify-shaped routes (stdlib http.server).
 
 Binds to a loopback IP only. A Bearer token is ALWAYS required unless auth is disabled
-explicitly (--no-auth): it comes from --token / LUSTRO_API_TOKEN, or a random one is
+explicitly (--no-auth): it comes from --token / WW_SCRAPER_API_TOKEN, or a random one is
 generated at start and printed once. Requests whose Host header is not a loopback
 address are refused (DNS-rebinding guard), browser requests carrying a non-loopback
 Origin are refused (CSRF guard), and POST bodies must be application/json.
@@ -39,18 +39,18 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
-class LustroAPI:
+class ScraperAPI:
     def __init__(self, storage: Storage = None, host: str = "127.0.0.1", port: int = 8765,
                  token: str = None, allow_loopback: bool = False, lang: str = None,
                  no_auth: bool = False):
         if not is_loopback_host(host):
-            raise ValueError("the Lustro API binds to a loopback IP only (127.0.0.1 or ::1)")
+            raise ValueError("the ww-scraper API binds to a loopback IP only (127.0.0.1 or ::1)")
         self.storage = storage or Storage()
         self.token_generated = False
         if no_auth:
             self.token = ""
         else:
-            self.token = token or os.environ.get("LUSTRO_API_TOKEN", "")
+            self.token = token or os.environ.get("WW_SCRAPER_API_TOKEN", "")
             if not self.token:
                 self.token = secrets.token_urlsafe(32)
                 self.token_generated = True
@@ -93,8 +93,8 @@ class LustroAPI:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    ctx: LustroAPI = None
-    server_version = "Lustro"
+    ctx: ScraperAPI = None
+    server_version = "ww-scraper"
     sys_version = ""
 
     def log_message(self, fmt, *args):  # quiet by default

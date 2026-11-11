@@ -2,8 +2,8 @@
 loopback access is enabled only through the explicit allow_loopback test switch."""
 import pytest
 
-from lustro.storage import Storage
-from lustro.testsite import TestSite
+from ww_scraper.storage import Storage
+from ww_scraper.testsite import TestSite
 
 
 @pytest.fixture(scope="session")
@@ -26,5 +26,5 @@ def storage(tmp_path):
 
 @pytest.fixture
 def crawler(storage):
-    from lustro.crawler import PoliteCrawler
+    from ww_scraper.crawler import PoliteCrawler
     return PoliteCrawler(min_interval=0, allow_loopback=True, backoff_base=0.05, max_backoff=5)

@@ -3,8 +3,8 @@ import threading
 
 import pytest
 
-from lustro.actor import Actor, InputError, prepare_run, run_actor, validate_input
-from lustro.actors import ACTORS, get_actor
+from ww_scraper.actor import Actor, InputError, prepare_run, run_actor, validate_input
+from ww_scraper.actors import ACTORS, get_actor
 
 SCHEMA = {
     "type": "object",

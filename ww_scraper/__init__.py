@@ -1,4 +1,4 @@
-"""Lustro - compliant, open-source collector and local mirror of Apify-style primitives.
+"""ww-scraper - compliant, open-source collector and local mirror of Apify-style primitives.
 
 Public API:
   search(query, sources=..., limit=..., verify=...) -> list[Resource]   (v0.1 media)
@@ -17,7 +17,7 @@ __all__ = ["Resource", "search", "run_actor", "SOURCES", "get_source", "__versio
 
 
 def run_actor(*args, **kwargs):
-    """Run an actor synchronously; see lustro.actor.run_actor."""
+    """Run an actor synchronously; see ww_scraper.actor.run_actor."""
     from .actor import run_actor as _run
     return _run(*args, **kwargs)
 
