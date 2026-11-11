@@ -9,6 +9,7 @@ right-hand column lists only what such platforms publicly offer as their core se
 | Where it runs | your machine, one `pip install` | their cloud, an account |
 | Cost | none; MIT license | subscription or usage |
 | Data location | a directory you own | their storage, then export |
+| Export formats | JSON, JSONL, CSV, XLSX, XML, HTML, with field selection; formulas neutralised in CSV and never evaluated in XLSX | JSON, JSONL, CSV, XLSX, XML, RSS, HTML |
 | Datasets, key-value stores, request queues, runs | yes, same layout and names | yes |
 | HTTP API | local only, loopback, token required | public, per account |
 | Webhooks | HMAC-signed, allowlisted hosts only | yes |

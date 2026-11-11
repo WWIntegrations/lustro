@@ -14,13 +14,16 @@ from __future__ import annotations
 import collections
 import csv
 import datetime
+import html
 import io
 import json
 import os
 import re
 import secrets
 import threading
+import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape, quoteattr as _xml_attr
 from urllib.parse import urlsplit, urlunsplit
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -84,6 +87,131 @@ def _csv_cell(v) -> str:
     return v
 
 
+EXPORT_FORMATS = ("json", "jsonl", "csv", "xlsx", "xml", "html")
+# Characters XML 1.0 cannot hold at all (they are not escapable): dropped, never sent raw.
+_XML_INVALID = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+_XLSX_CELL_MAX = 32767          # Excel refuses longer cells
+_XLSX_ROWS_MAX = 1_048_576
+
+
+def _columns(items) -> list:
+    cols: list = []
+    seen = set()
+    for it in items:
+        for k in it:
+            if k not in seen:
+                seen.add(k)
+                cols.append(k)
+    return cols
+
+
+def _text(v) -> str:
+    """One cell as text: nested values as JSON, booleans lower-case, None empty."""
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v)
+
+
+def _xml_text(v) -> str:
+    return _xml_escape(_XML_INVALID.sub("", _text(v)))
+
+
+def _col_letter(i: int) -> str:
+    s = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _xlsx(items, cols) -> bytes:
+    """A minimal SpreadsheetML workbook, standard library only. Text goes in inline-string
+    cells, which Excel never evaluates, so a value starting with '=' stays text."""
+    if len(items) + 1 > _XLSX_ROWS_MAX:
+        raise StorageError(f"too many rows for xlsx ({len(items)}); use csv or jsonl")
+
+    def cell(ref, v):
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float("inf"), float("-inf")):
+            return f'<c r="{ref}"><v>{v!r}</v></c>'
+        s = _XML_INVALID.sub("", _text(v))[:_XLSX_CELL_MAX]
+        if s == "":
+            return ""
+        return f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{_xml_escape(s)}</t></is></c>'
+
+    rows = []
+    for r, values in enumerate([cols] + [[it.get(c) for c in cols] for it in items], start=1):
+        cells = "".join(cell(f"{_col_letter(i)}{r}", v) for i, v in enumerate(values))
+        rows.append(f'<row r="{r}">{cells}</row>')
+    sheet = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+             '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+             f'<sheetData>{"".join(rows)}</sheetData></worksheet>')
+    parts = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '</Types>'),
+        "_rels/.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            '</Relationships>'),
+        "xl/workbook.xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheets><sheet name="items" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+        "xl/_rels/workbook.xml.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            '</Relationships>'),
+        "xl/worksheets/sheet1.xml": sheet,
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, body in parts.items():
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))  # same items, same bytes
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, body.encode("utf-8"))
+    return buf.getvalue()
+
+
+def _xml(items) -> bytes:
+    """<items><item><field name="key">value</field>...</item></items>. Keys go in an
+    attribute because a scraped key is rarely a valid element name."""
+    out = ['<?xml version="1.0" encoding="UTF-8"?>\n<items>']
+    for it in items:
+        out.append("  <item>")
+        for k, v in it.items():
+            out.append(f"    <field name={_xml_attr(_XML_INVALID.sub('', str(k)))}>{_xml_text(v)}</field>")
+        out.append("  </item>")
+    out.append("</items>\n")
+    return "\n".join(out).encode("utf-8")
+
+
+def _html(items, cols, title: str) -> bytes:
+    """A self-contained table: every value escaped, no scripts, a CSP that forbids them."""
+    esc = lambda v: html.escape(_text(v), quote=True)
+    head = "".join(f"<th>{esc(c)}</th>" for c in cols)
+    body = "".join("<tr>" + "".join(f"<td>{esc(it.get(c))}</td>" for c in cols) + "</tr>" for it in items)
+    return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">"
+            f"<title>{esc(title)}</title><style>body{{font:14px system-ui,sans-serif;margin:24px}}"
+            "table{border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 8px;text-align:left;"
+            "vertical-align:top;max-width:40em;overflow-wrap:anywhere}th{background:#f2f2f2}</style></head>"
+            f"<body><h1>{esc(title)}</h1><p>{len(items)} item(s)</p><table><thead><tr>{head}</tr></thead>"
+            f"<tbody>{body}</tbody></table></body></html>\n").encode("utf-8")
+
+
 class Dataset:
     """Append-only list of JSON objects (one per line)."""
 
@@ -138,28 +266,36 @@ class Dataset:
     def count(self) -> int:
         return sum(1 for _ in self.iter_items())
 
-    def export(self, fmt: str = "json", offset: int = 0, limit=None):
-        """Return (bytes, content_type) in json | jsonl | csv."""
+    def export(self, fmt: str = "json", offset: int = 0, limit=None, fields=None):
+        """Return (bytes, content_type) in json | jsonl | csv | xlsx | xml | html.
+        fields: keep only these keys, in this order."""
+        if fmt not in EXPORT_FORMATS:
+            raise StorageError(f"unsupported format: {fmt!r} ({', '.join(EXPORT_FORMATS)})")
         items = self.items(offset, limit)
+        if fields:
+            fields = [f for f in fields if f]
+            items = [{f: it[f] for f in fields if f in it} for it in items]
         if fmt == "json":
             return (json.dumps(items, ensure_ascii=False, indent=2).encode("utf-8"),
                     "application/json; charset=utf-8")
         if fmt == "jsonl":
             body = "".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items)
             return body.encode("utf-8"), "application/jsonl; charset=utf-8"
+        cols = list(fields) if fields else _columns(items)
+        if fmt == "xlsx":
+            return _xlsx(items, cols), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if fmt == "xml":
+            return _xml(items), "application/xml; charset=utf-8"
+        if fmt == "html":
+            return _html(items, cols, f"Dataset {self.id}"), "text/html; charset=utf-8"
         if fmt == "csv":
-            cols: list = []
-            for it in items:
-                for k in it:
-                    if k not in cols:
-                        cols.append(k)
             buf = io.StringIO()
             w = csv.writer(buf)
             w.writerow(cols)
             for it in items:
                 w.writerow([_csv_cell(it.get(c)) for c in cols])
             return buf.getvalue().encode("utf-8"), "text/csv; charset=utf-8"
-        raise StorageError(f"unsupported format: {fmt!r} (json, jsonl, csv)")
+        raise StorageError(f"unsupported format: {fmt!r}")
 
 
 # --- KeyValueStore ---------------------------------------------------------------------

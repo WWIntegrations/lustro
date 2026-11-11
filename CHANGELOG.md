@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 (2026-11-12)
+
+- Dataset export in six formats: `json`, `jsonl`, `csv`, `xlsx`, `xml` and `html`, from the
+  CLI (`--format`, `--fields`, `--out`) and the local API (`format=`, `fields=`).
+  - `xlsx` is written with the standard library. Text goes in inline-string cells, which
+    a spreadsheet never evaluates, so `=HYPERLINK(...)` from a scraped page stays text.
+    Checked by reading the file back with LibreOffice. Same items give the same bytes.
+  - `xml` puts keys in a `name` attribute (scraped keys are rarely valid element names)
+    and drops the characters XML 1.0 cannot hold.
+  - `html` is one self-contained table, every value escaped, with a CSP that forbids
+    scripts; the API also serves it with `Content-Security-Policy: sandbox`.
+  - `fields` keeps only the named keys, in that order, in every format.
+- Tests: 145 to 149.
+
 ## 0.5.0 (2026-11-12)
 
 - Adaptive pacing per host. A 429 or 503 slows the whole host down, not only the request
