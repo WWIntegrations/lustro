@@ -1,15 +1,23 @@
 """change-monitor: crawl a site, hash the main content of each page and compare with the
 snapshot kept from the previous run under the same monitorName. Reports pages that are
 new, changed or removed (404/410). The snapshot lives in the key-value store
-`monitor-<monitorName>`; only hashes, titles and word counts are kept, not page text."""
+`monitor-<monitorName>`; only hashes, titles, word counts, HTTP validators (ETag,
+Last-Modified) and the URLs a page links to are kept, never page text.
+
+With conditionalRequests (the default) a page seen before is asked for with
+If-None-Match / If-Modified-Since. A server that answers 304 sends no body, so the page
+counts as unchanged without being downloaded again, and its links from the last run are
+still followed, so pages reachable only through it are not missed."""
 from __future__ import annotations
 
 import hashlib
 from urllib.parse import urldefrag
 
 from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor, _now
+from ..crawler import validator_of
 
 SNAPSHOT_KEY = "SNAPSHOT"
+MAX_LINKS = 500
 
 
 def content_hash(markdown: str) -> str:
@@ -30,6 +38,8 @@ class ChangeMonitor(Actor):
             "maxPages": {"type": "integer", "default": 50, "minimum": 1, "maximum": 10000},
             "maxDepth": {"type": "integer", "default": 2, "minimum": 0, "maximum": 20},
             "includeUnchanged": {"type": "boolean", "default": False},
+            "conditionalRequests": {"type": "boolean", "default": True,
+                                    "description": "Ask with ETag / Last-Modified; a 304 means unchanged, no download"},
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
             "render": RENDER,
@@ -48,11 +58,28 @@ class ChangeMonitor(Actor):
         current: dict = {}
         gone: set = set()
         crawler = ctx.crawler()
+        not_modified = 0
+        if inp["conditionalRequests"]:
+            for url, page in pages.items():
+                if isinstance(page, dict) and (page.get("etag") or page.get("lastModified")):
+                    crawler.validators[url] = {"etag": page.get("etag"), "lastModified": page.get("lastModified")}
+                if isinstance(page, dict) and isinstance(page.get("links"), list):
+                    crawler.known_links[url] = [u for u in page["links"] if isinstance(u, str)][:MAX_LINKS]
 
         def record(url, res, doc):
-            if doc is not None and not doc.noindex:
-                current[url] = {"hash": content_hash(doc.markdown), "title": doc.title[:300],
-                                "wordCount": doc.word_count}
+            nonlocal not_modified
+            if res.not_modified and isinstance(pages.get(url), dict) and "hash" in pages[url]:
+                current[url] = dict(pages[url])
+                not_modified += 1
+            elif doc is not None and not doc.noindex:
+                entry = {"hash": content_hash(doc.markdown), "title": doc.title[:300],
+                         "wordCount": doc.word_count, **validator_of(res.headers)}
+                if not doc.nofollow:
+                    links = sorted({urldefrag(link["url"])[0] for link in doc.links
+                                    if link["url"].startswith(("http://", "https://"))})[:MAX_LINKS]
+                    if links:
+                        entry["links"] = links
+                current[url] = entry
             elif res.status in (404, 410):
                 gone.add(url)
             elif res.error or res.status >= 400:
@@ -78,7 +105,8 @@ class ChangeMonitor(Actor):
             record(url, res, doc)
 
         summary = {"monitorName": name, "firstRun": not previous, "new": 0, "changed": 0,
-                   "removed": 0, "unchanged": 0, "previousRunAt": previous.get("savedAt")}
+                   "removed": 0, "unchanged": 0, "notModified": not_modified,
+                   "previousRunAt": previous.get("savedAt")}
         for url, now in sorted(current.items()):
             before = pages.get(url)
             state = "new" if before is None else ("changed" if before["hash"] != now["hash"] else "unchanged")

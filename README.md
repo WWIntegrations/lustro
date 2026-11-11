@@ -113,7 +113,7 @@ metadata with the standard library only (`html.parser`).
 | `media-collector`         | the v0.1 sources below, as an actor                                 |
 | `robots-audit`            | per origin: robots.txt groups, the group that applies to each crawler, Crawl-delay, sitemaps, and the decision with the winning rule for every test path; fetches nothing but robots.txt |
 | `structured-data`         | per page: JSON-LD objects (lifted out of `@graph`), Open Graph and Twitter card tags, invalid JSON-LD blocks |
-| `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; the snapshot keeps hashes, titles and word counts, not page text |
+| `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; pages seen before are asked for with ETag / Last-Modified, so an unchanged page that answers 304 is not downloaded again; the snapshot keeps hashes, titles, word counts, validators and link URLs, not page text |
 | `feed-reader`             | RSS / Atom feeds a page advertises (or feed URLs given directly) and their entries |
 
 ```bash

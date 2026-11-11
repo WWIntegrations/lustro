@@ -14,7 +14,12 @@
   API never loads a path.
 - `ww-scraper runs` lists runs; `ww-scraper report <run-id>` writes a self-contained
   HTML report (no scripts, no external references, all values escaped).
-- Tests: 122 to 135.
+- `change-monitor` revalidates instead of re-downloading: a page seen before is asked
+  for with `If-None-Match` / `If-Modified-Since`, a 304 counts as unchanged (`notModified`
+  in OUTPUT) and the links it had last time are still followed. Validators echoed back to a
+  server are checked first (one printable line, at most 200 characters, a real HTTP date).
+  `"conditionalRequests": false` turns it off.
+- Tests: 122 to 140.
 
 ## 0.3.0 (2026-11-11)
 
