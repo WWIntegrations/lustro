@@ -10,7 +10,7 @@ images on your own machine, without proxies, evasion or anything a site has not 
 
 ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (Apify-style datasets, key-value stores, request queues, actors, runs and a
-small HTTP API), plus seven ready actors and the original licensed media collector.
+small HTTP API), plus eleven ready actors, including the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
 robots.txt always, a per-host rate limit, an honest User-Agent with a contact, and
 personal data redacted by default.
@@ -54,7 +54,7 @@ The test site's `/private/secret` is disallowed by its `robots.txt`, so ww-scrap
 See [`COMPLIANCE.md`](COMPLIANCE.md) for how each risk criterion - data type (GDPR),
 copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's behavior.
 
-## Platform primitives (v0.2)
+## Platform primitives
 
 Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `apify_storage`:
 
@@ -67,7 +67,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `apify_s
 | `RunContext`   | input, dataset, kv, queue, log, polite session, statistics              |
 | Run record     | `storage/runs/<id>.json`: READY / RUNNING / SUCCEEDED / FAILED / ABORTED, times, counters |
 
-`PoliteCrawler` is the only way actors fetch pages: robots.txt per origin (cached, with
+`PoliteCrawler` is the only way actors fetch pages: robots.txt per origin (RFC 9309, cached, with
 Crawl-delay), a minimum interval per host, retries with backoff on 429/5xx that honour
 `Retry-After` (and give up if asked to wait longer than the cap), `max_pages` /
 `max_depth`, same-origin scope with include/exclude globs, the SSRF guard on every
@@ -85,6 +85,10 @@ metadata with the standard library only (`html.parser`).
 | `llms-txt`                | checks `/llms.txt` + `/llms-full.txt` against llmstxt.org, or drafts one (`"mode": "generate"`) |
 | `link-checker`            | broken links (internal and external) and redirect chains            |
 | `media-collector`         | the v0.1 sources below, as an actor                                 |
+| `robots-audit`            | per origin: robots.txt groups, the group that applies to each crawler, Crawl-delay, sitemaps, and the decision with the winning rule for every test path; fetches nothing but robots.txt |
+| `structured-data`         | per page: JSON-LD objects (lifted out of `@graph`), Open Graph and Twitter card tags, invalid JSON-LD blocks |
+| `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; the snapshot keeps hashes, titles and word counts, not page text |
+| `feed-reader`             | RSS / Atom feeds a page advertises (or feed URLs given directly) and their entries |
 
 ```bash
 ww-scraper actors                                   # list actors and input fields
@@ -92,6 +96,8 @@ ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"], "maxPa
 ww-scraper run website-content-crawler --input-file input.json --print-items
 ww-scraper run sitemap --resume <run-id>            # continue an interrupted run
 ww-scraper export <dataset-id> --format csv
+ww-scraper run robots-audit --input '{"startUrls": ["https://example.com/"], "testPaths": ["/", "/admin"]}'
+ww-scraper run change-monitor --input '{"startUrls": ["https://example.com/"], "monitorName": "example"}'
 ```
 
 Try it offline against the bundled test site (the `--allow-loopback` switch is for
@@ -200,7 +206,13 @@ the open, that respects the sites it touches.
 
 ### Known limits
 
-- robots.txt matching uses `urllib.robotparser`: no `*` / `$` wildcards inside paths.
+- robots.txt follows RFC 9309 (`ww_scraper/robots.py`): `*` and `$` in paths, longest match
+  wins, `Allow` wins a tie, a group naming `ww-scraper` replaces the `*` group. A group is
+  selected by exact product token, not by substring. `%2F` in a path is compared as `/`.
+- `change-monitor` compares the extracted main content, so a change only in navigation,
+  footer or scripts is not reported.
+- `feed-reader` reads RSS 2.0, RDF and Atom titles, links, ids, dates and summaries; it
+  does not read enclosures or JSON Feed.
 - DNS rebinding is closed for crawler, robots.txt and webhook requests: the host is
   resolved once at connect time, every address is validated, the socket goes to that
   IP (Host/SNI unchanged) and the peer is re-checked, on every redirect hop. Those

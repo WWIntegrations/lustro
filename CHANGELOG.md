@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 (2026-11-11)
+
+- Renamed from `lustro` to `ww-scraper`: package `ww_scraper`, command `ww-scraper`,
+  environment variables `WW_SCRAPER_*`, webhook headers `X-WW-Scraper-*`, User-Agent and
+  robots token `ww-scraper`. There are no compatibility aliases for the old names.
+- robots.txt is now parsed by `ww_scraper/robots.py` following RFC 9309: `*` and `$`
+  wildcards, longest match, `Allow` wins a tie, most specific group. Matching is linear.
+- New actors: `robots-audit`, `structured-data`, `change-monitor`, `feed-reader`
+  (eleven in total).
+- Pages now expose JSON-LD objects, Twitter card tags and advertised feeds.
+- Tests: 102 to 122.
+
 ## 0.2.0
 
 Local, compliant mirror of Apify-style platform primitives, plus seven actors.

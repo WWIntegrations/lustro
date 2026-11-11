@@ -19,6 +19,8 @@ HOME = """<!doctype html>
 <link rel="canonical" href="{base}/">
 <link rel="alternate" hreflang="pl" href="{base}/">
 <link rel="alternate" hreflang="en" href="{base}/en">
+<link rel="alternate" type="application/rss+xml" title="Blog feed" href="/feed.xml">
+<meta name="twitter:card" content="summary">
 <meta property="og:title" content="ww-scraper Test Site">
 <meta property="og:description" content="Offline fixture">
 <meta property="og:site_name" content="ww-scraper Test Site">
@@ -60,7 +62,22 @@ POST = """<!doctype html><html lang="en"><head><title>First post on the ww-scrap
 NOINDEX = """<!doctype html><html><head><title>Hidden</title>
 <meta name="robots" content="noindex"></head><body><p>Do not index me.</p></body></html>"""
 
-ROBOTS = "User-agent: *\nDisallow: /private/\n\nSitemap: {base}/sitemap_index.xml\n"
+ROBOTS = ("User-agent: *\nDisallow: /private/\nDisallow: /*.bak$\nAllow: /private/open\n"
+          "Crawl-delay: 0\n\nUser-agent: badbot\nDisallow: /\n\nSitemap: {base}/sitemap_index.xml\n")
+
+FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Test blog</title><link>{base}/</link>
+<item><title>Post 1 &amp; more</title><link>{base}/blog/post-1</link>
+<guid>post-1</guid><pubDate>Thu, 01 Oct 2026 08:00:00 GMT</pubDate>
+<description><![CDATA[<p>First post.</p>]]></description></item>
+<item><title>Post 2</title><link>{base}/blog/post-2</link><guid>post-2</guid></item>
+</channel></rss>"""
+
+ATOM = """<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom blog</title>
+<entry><title>Atom entry</title><link rel="alternate" href="{base}/blog/post-1"/>
+<id>urn:test:1</id><updated>2026-10-01T08:00:00Z</updated><summary>Short summary.</summary></entry>
+</feed>"""
 
 SITEMAP_INDEX = """<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -150,6 +167,11 @@ class _Handler(BaseHTTPRequestHandler):
             "/sitemap-blog.xml.gz": lambda: self._send(
                 200, gzip.compress(SITEMAP_BLOG.format(base=b).encode()), "application/x-gzip"),
             "/sitemap.xml": lambda: self._send(200, SITEMAP_PAGES.format(base=b), "application/xml"),
+            "/feed.xml": lambda: self._send(200, FEED.format(base=b), "application/rss+xml"),
+            "/atom.xml": lambda: self._send(200, ATOM.format(base=b), "application/atom+xml"),
+            "/private/open": lambda: self._send(200, "<html><head><title>Open</title></head><body><p>Open page.</p></body></html>"),
+            "/old.bak": lambda: self._send(200, "<p>backup</p>"),
+            "/changing": lambda: self._changing(),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
             "/llms-full.txt": lambda: self._send(200, "# Full\n\nAll the docs in one file.\n", "text/plain"),
             "/redirect-1": lambda: self._send(301, headers={"Location": "/redirect-2"}),
@@ -175,6 +197,14 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(404, "<h1>Not found</h1>")
         handler()
 
+    def _changing(self):
+        site = self.site
+        with site.lock:
+            state = site.changing
+        if state == "gone":
+            return self._send(404, "<h1>404</h1>")
+        return self._send(200, f"<html><head><title>Changing</title></head><body><main><p>Version {state}.</p></main></body></html>")
+
     def _flaky(self, code):
         site = self.site
         with site.lock:
@@ -194,6 +224,7 @@ class TestSite:
         self.hits: list = []
         self.agents: list = []
         self.counter: dict = {}
+        self.changing = "1"      # body version of /changing, or "gone" for a 404
         self.lock = threading.Lock()
         site = self
 
@@ -214,6 +245,7 @@ class TestSite:
             self.hits.clear()
             self.agents.clear()
             self.counter.clear()
+            self.changing = "1"
 
     def stop(self):
         self.httpd.shutdown()
