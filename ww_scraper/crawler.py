@@ -8,6 +8,7 @@ content-type filter and a byte limit. There is no switch to skip robots.txt.
 from __future__ import annotations
 
 import concurrent.futures
+from email.utils import parsedate_to_datetime
 import fnmatch
 import threading
 import time
@@ -34,6 +35,7 @@ class FetchResult:
     url: str
     final_url: str = ""
     status: int = 0
+    not_modified: bool = False   # 304 to a conditional request: body unchanged, not read
     headers: dict = field(default_factory=dict)
     set_cookies: list = field(default_factory=list)
     body: bytes = b""
@@ -91,6 +93,40 @@ def _cookie_flags(resp) -> list:
     return out
 
 
+MAX_VALIDATOR = 200
+
+
+def conditional_headers(validator) -> dict:
+    """If-None-Match / If-Modified-Since from a stored {"etag", "lastModified"}.
+
+    The values came from a server earlier and are sent back to it, so anything that is not
+    a short single line of printable ASCII (or not an HTTP date) is dropped, not sent."""
+    out = {}
+    if not isinstance(validator, dict):
+        return out
+    etag, modified = validator.get("etag"), validator.get("lastModified")
+    if (isinstance(etag, str) and 0 < len(etag) <= MAX_VALIDATOR
+            and all(" " <= c <= "~" for c in etag)):
+        out["If-None-Match"] = etag
+    if isinstance(modified, str) and 0 < len(modified) <= MAX_VALIDATOR:
+        try:
+            parsedate_to_datetime(modified)
+        except (TypeError, ValueError, IndexError):
+            pass
+        else:
+            if all(" " <= c <= "~" for c in modified):
+                out["If-Modified-Since"] = modified
+    return out
+
+
+def validator_of(headers) -> dict:
+    """{"etag", "lastModified"} worth keeping from a response, or {}."""
+    kept = conditional_headers({"etag": (headers or {}).get("etag"),
+                                "lastModified": (headers or {}).get("last-modified")})
+    return {k: v for k, v in (("etag", kept.get("If-None-Match")),
+                              ("lastModified", kept.get("If-Modified-Since"))) if v}
+
+
 class PoliteCrawler:
     def __init__(self, ctx=None, *, session=None, min_interval: float = 1.0,
                  allow_loopback: bool = None, max_retries: int = 3, backoff_base: float = 1.0,
@@ -117,6 +153,10 @@ class PoliteCrawler:
         self.default_concurrency = 1
         self.render = False          # True: HTML pages are re-read through headless Chrome
         self.render_wait_ms = 3000
+        # url -> {"etag", "lastModified"}: GETs of these URLs are conditional, a 304 is "unchanged"
+        self.validators: dict = {}
+        # url -> links seen the last time: followed when the page answers 304 (no body to parse)
+        self.known_links: dict = {}
         self.robots = RobotsCache(self.session, allow_loopback=self.allow_loopback,
                                   on_fetch=self._host_setup_origin)
 
@@ -153,14 +193,14 @@ class PoliteCrawler:
                 return
             time.sleep(min(0.2, max(0.0, end - time.monotonic())))
 
-    def _request(self, method: str, url: str):
+    def _request(self, method: str, url: str, headers=None):
         """(response | None, error). Retries 429/5xx and network errors."""
         last_err = ""
         for attempt in range(self.max_retries + 1):
             self._inc("requests")
             try:
                 resp = self.session.request(method, url, stream=True, allow_redirects=False,
-                                            timeout=self.timeout)
+                                            timeout=self.timeout, headers=headers)
             except SSRFBlocked as e:
                 self._inc("ssrfBlocked")
                 return None, f"ssrf: {e}"
@@ -212,7 +252,9 @@ class PoliteCrawler:
                 res.final_url, res.error, res.blocked = current, f"robots: {why}", True
                 return res
             self._apply_crawl_delay(current, self.robots.get(current))
-            resp, err = self._request(method, current)
+            extra = (conditional_headers(self.validators.get(url))
+                     if method == "GET" and current == url and self.validators else None)
+            resp, err = self._request(method, current, extra or None)
             if resp is None:
                 res.final_url, res.error = current, err
                 res.blocked = err.startswith("ssrf:")
@@ -228,6 +270,10 @@ class PoliteCrawler:
                     continue
                 res.headers = _lower_headers(resp)
                 res.set_cookies = _cookie_flags(resp)
+                if resp.status_code == 304 and extra:
+                    res.not_modified = True
+                    self._inc("notModified")
+                    return res
                 res.content_type = (res.headers.get("content-type") or "").split(";")[0].strip().lower()
                 if accept_types is not None and res.content_type not in accept_types:
                     res.error = f"content-type: {res.content_type or 'none'}"
@@ -309,12 +355,17 @@ class PoliteCrawler:
                 origins.add(origin_of(res.final_url))
             on_page(res, req, doc)
             queue.mark_handled(req, error=res.error)
-            if (enqueue_links and doc is not None and req.get("depth", 0) < max_depth
-                    and not doc.nofollow and "nofollow" not in res.headers.get("x-robots-tag", "")):
-                for link in doc.links:
-                    target = urldefrag(link["url"])[0]
-                    if self.in_scope(target, origins, same_origin, include, exclude):
-                        queue.add(target, depth=req.get("depth", 0) + 1)
+            if not enqueue_links or req.get("depth", 0) >= max_depth:
+                return
+            if doc is not None and not doc.nofollow and "nofollow" not in res.headers.get("x-robots-tag", ""):
+                targets = [urldefrag(link["url"])[0] for link in doc.links]
+            elif res.not_modified:
+                targets = list(self.known_links.get(req["url"], ()))
+            else:
+                return
+            for target in targets:
+                if self.in_scope(target, origins, same_origin, include, exclude):
+                    queue.add(target, depth=req.get("depth", 0) + 1)
 
         if workers == 1:
             while processed < max_pages:

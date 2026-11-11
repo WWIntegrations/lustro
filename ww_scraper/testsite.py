@@ -182,6 +182,7 @@ class _Handler(BaseHTTPRequestHandler):
             "/private/open": lambda: self._send(200, "<html><head><title>Open</title></head><body><p>Open page.</p></body></html>"),
             "/old.bak": lambda: self._send(200, "<p>backup</p>"),
             "/changing": lambda: self._changing(),
+            "/cached": lambda: self._cached(),
             "/js": lambda: self._send(200, JS_PAGE),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
             "/llms-full.txt": lambda: self._send(200, "# Full\n\nAll the docs in one file.\n", "text/plain"),
@@ -216,6 +217,20 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(404, "<h1>404</h1>")
         return self._send(200, f"<html><head><title>Changing</title></head><body><main><p>Version {state}.</p></main></body></html>")
 
+    def _cached(self):
+        """A page with an ETag and Last-Modified that answers 304 when the validator matches."""
+        site = self.site
+        with site.lock:
+            version = site.cached
+            site.conditional.append({"ifNoneMatch": self.headers.get("If-None-Match"),
+                                     "ifModifiedSince": self.headers.get("If-Modified-Since")})
+        etag = f'"v{version}"'
+        headers = {"ETag": etag, "Last-Modified": "Tue, 10 Nov 2026 08:00:00 GMT"}
+        if self.headers.get("If-None-Match") == etag:
+            return self._send(304, headers=headers)
+        return self._send(200, f'<html><head><title>Cached</title></head><body><main><p>Cached version {version}.</p>'
+                               f'<a href="/about">About</a></main></body></html>', headers=headers)
+
     def _flaky(self, code):
         site = self.site
         with site.lock:
@@ -236,6 +251,8 @@ class TestSite:
         self.agents: list = []
         self.counter: dict = {}
         self.changing = "1"      # body version of /changing, or "gone" for a 404
+        self.cached = "1"        # body version of /cached (its ETag is "v<version>")
+        self.conditional: list = []   # validators each /cached request carried
         self.lock = threading.Lock()
         site = self
 
@@ -257,6 +274,8 @@ class TestSite:
             self.agents.clear()
             self.counter.clear()
             self.changing = "1"
+            self.cached = "1"
+            self.conditional.clear()
 
     def stop(self):
         self.httpd.shutdown()
