@@ -107,3 +107,65 @@ def test_politeness_floor_applies_to_non_loopback_hosts():
     assert c._effective_interval("example.com") >= 0.5
     c2 = PoliteCrawler(min_interval=0)
     assert c2._effective_interval("127.0.0.1") >= 0.5
+
+
+def test_429_slows_the_whole_host_not_only_the_request(site, crawler):
+    host = "127.0.0.1"
+    res = crawler.fetch(site.base + "/slow-429")
+    assert res.ok
+    assert crawler.session.limiter.interval(host) == 0.5   # floor 0 on loopback, first step
+    assert crawler.stats["throttled"] == 1
+    crawler._slow_down(host)
+    assert crawler.session.limiter.interval(host) == 1.0   # doubles on every overload signal
+
+
+def test_adaptive_interval_is_capped(crawler):
+    from ww_scraper.crawler import MAX_ADAPTIVE_INTERVAL
+    crawler._host_setup("example.org")
+    for _ in range(20):
+        crawler._slow_down("example.org")
+    assert crawler.session.limiter.interval("example.org") == MAX_ADAPTIVE_INTERVAL
+
+
+def test_success_streak_eases_back_but_never_below_crawl_delay(crawler):
+    from ww_scraper.crawler import SPEED_UP_AFTER
+
+    class Robots:
+        def crawl_delay(self):
+            return 2.0
+
+    host = "example.org"
+    crawler._host_setup(host)
+    crawler._apply_crawl_delay("https://example.org/", Robots())
+    for _ in range(3):
+        crawler._slow_down(host)
+    assert crawler.session.limiter.interval(host) == 16.0
+    for _ in range(SPEED_UP_AFTER - 1):
+        crawler._speed_up(host)
+    assert crawler.session.limiter.interval(host) == 16.0  # one success is not a recovery
+    crawler._speed_up(host)
+    assert crawler.session.limiter.interval(host) == 12.0
+    for _ in range(SPEED_UP_AFTER * 30):
+        crawler._speed_up(host)
+    assert crawler.session.limiter.interval(host) == 2.0   # Crawl-delay stays the floor
+
+
+def test_overload_resets_the_success_streak(crawler):
+    from ww_scraper.crawler import SPEED_UP_AFTER
+    host = "example.org"
+    crawler._host_setup(host)
+    crawler.min_interval = 1.0
+    crawler._slow_down(host)
+    crawler._slow_down(host)
+    for _ in range(SPEED_UP_AFTER - 1):
+        crawler._speed_up(host)
+    crawler._slow_down(host)
+    crawler._speed_up(host)
+    assert crawler.session.limiter.interval(host) == 4.0
+
+
+def test_adaptive_pacing_can_be_switched_off(site, crawler):
+    crawler.adaptive = False
+    res = crawler.fetch(site.base + "/slow-429")
+    assert res.ok and crawler.session.limiter.interval("127.0.0.1") == 0
+    assert crawler.stats.get("throttled", 0) == 0

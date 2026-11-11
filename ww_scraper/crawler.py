@@ -4,6 +4,11 @@ Per request it enforces, in this order: scheme + SSRF check (on every redirect h
 robots.txt for the hop's origin (cached), a per-host minimum interval (raised by
 robots Crawl-delay), retries with backoff on 429/5xx that honour Retry-After, a
 content-type filter and a byte limit. There is no switch to skip robots.txt.
+
+Pacing adapts per host: a 429 or 503 doubles that host's interval for the rest of the
+run (up to MAX_ADAPTIVE_INTERVAL), and every SPEED_UP_AFTER plain successes ease it back
+by a quarter. It never drops below the configured interval or the robots Crawl-delay,
+so a server that struggles is asked less often, and one that recovers is not punished.
 """
 from __future__ import annotations
 
@@ -24,6 +29,11 @@ from .storage import MemoryRequestQueue
 
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 RETRY_CODES = (429, 500, 502, 503, 504)
+# The server says it is overloaded: slow down for this host, not only for this request.
+THROTTLE_CODES = (429, 503)
+MAX_ADAPTIVE_INTERVAL = 60.0
+ADAPTIVE_FIRST_STEP = 0.5
+SPEED_UP_AFTER = 10
 REDIRECT_CODES = (301, 302, 303, 307, 308)
 _SKIP_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".pdf", ".zip",
              ".gz", ".tar", ".mp4", ".mp3", ".webm", ".mov", ".avi", ".woff", ".woff2",
@@ -150,6 +160,11 @@ class PoliteCrawler:
                                             "bytes": 0, "items": 0}
         self._hosts_seen: set = set()
         self._stats_lock = threading.Lock()
+        # Adaptive pacing: host -> the interval it may never go below, and its success streak.
+        self.adaptive = True
+        self._base: dict = {}
+        self._streak: dict = {}
+        self._pace_lock = threading.Lock()
         self.default_concurrency = 1
         self.render = False          # True: HTML pages are re-read through headless Chrome
         self.render_wait_ms = 3000
@@ -177,14 +192,52 @@ class PoliteCrawler:
         if host in self._hosts_seen:
             return
         self._hosts_seen.add(host)
-        self.session.limiter.set_interval(host, self._effective_interval(host))
+        base = self._effective_interval(host)
+        with self._pace_lock:
+            self._base[host] = base
+        self.session.limiter.set_interval(host, base)
 
     def _apply_crawl_delay(self, url: str, entry) -> None:
         delay = entry.crawl_delay()
         if delay:
             host = urlparse(url).hostname or ""
+            delay = min(delay, MAX_CRAWL_DELAY)
+            with self._pace_lock:
+                self._base[host] = max(self._base.get(host, 0.0), delay)
+                cur = self.session.limiter.interval(host)
+                self.session.limiter.set_interval(host, max(cur, delay))
+
+    def _slow_down(self, host: str) -> None:
+        """The host answered 429/503: double its interval for the rest of the run."""
+        if not self.adaptive:
+            return
+        with self._pace_lock:
             cur = self.session.limiter.interval(host)
-            self.session.limiter.set_interval(host, max(cur, min(delay, MAX_CRAWL_DELAY)))
+            new = min(MAX_ADAPTIVE_INTERVAL, max(cur * 2, cur + ADAPTIVE_FIRST_STEP))
+            self._streak[host] = 0
+            if new > cur:
+                self.session.limiter.set_interval(host, new)
+        if new > cur:
+            self._inc("throttled")
+            if self.log:
+                self.log.info(f"{host} is overloaded: interval {cur:.2f}s -> {new:.2f}s")
+
+    def _speed_up(self, host: str) -> None:
+        """A plain success: after a streak, ease the interval back toward its floor."""
+        if not self.adaptive:
+            return
+        with self._pace_lock:
+            base = self._base.get(host, self._effective_interval(host))
+            cur = self.session.limiter.interval(host)
+            if cur <= base:
+                self._streak[host] = 0
+                return
+            self._streak[host] = self._streak.get(host, 0) + 1
+            if self._streak[host] < SPEED_UP_AFTER:
+                return
+            self._streak[host] = 0
+            new = max(base, cur * 0.75)
+            self.session.limiter.set_interval(host, new if new - base > 0.01 else base)
 
     def _sleep(self, seconds: float) -> None:
         end = time.monotonic() + seconds
@@ -196,6 +249,7 @@ class PoliteCrawler:
     def _request(self, method: str, url: str, headers=None):
         """(response | None, error). Retries 429/5xx and network errors."""
         last_err = ""
+        host = urlparse(url).hostname or ""
         for attempt in range(self.max_retries + 1):
             self._inc("requests")
             try:
@@ -211,6 +265,10 @@ class PoliteCrawler:
                     self._sleep(min(self.max_backoff, self.backoff_base * 2 ** attempt))
                     continue
                 return None, last_err
+            if resp.status_code in THROTTLE_CODES:
+                self._slow_down(host)
+            elif resp.status_code < 400:
+                self._speed_up(host)
             if resp.status_code in RETRY_CODES and attempt < self.max_retries:
                 wait = parse_retry_after(resp.headers.get("Retry-After"))
                 if wait is not None and wait > self.max_backoff:

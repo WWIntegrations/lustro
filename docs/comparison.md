@@ -16,6 +16,7 @@ right-hand column lists only what such platforms publicly offer as their core se
 | Your own scrapers | one Python file (`ww-scraper init`) | SDK plus deployment |
 | JavaScript rendering | local Chrome, behind an SSRF-filtering proxy | managed browsers |
 | Concurrency | up to 16 pages in flight, per-host spacing kept | horizontal scaling |
+| Pacing under load | per host: a 429 or 503 doubles the interval, a clean streak eases it back, never below Crawl-delay | autoscaling on the runner's CPU and memory |
 | Re-crawls | ETag / Last-Modified revalidation in `change-monitor`: an unchanged page answers 304 and is not downloaded again | depends on the scraper you run |
 | robots.txt | always obeyed, RFC 9309, no switch to turn it off; `robots-audit` explains each decision | the operator's choice |
 | Proxies, IP rotation, CAPTCHA solving, anti-bot evasion | **no, by design** | offered as products |
