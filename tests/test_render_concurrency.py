@@ -131,3 +131,40 @@ def test_abort_during_concurrent_crawl_reclaims_requests(site, storage):
                     storage, allow_loopback=True, abort_event=ev)
     assert rec["status"] == "ABORTED"
     assert storage.queue(rec["id"]).pending_count >= 0
+
+
+def test_browser_output_is_capped_while_reading_and_slow_browsers_are_killed(tmp_path, monkeypatch):
+    from ww_scraper import render
+    flood = tmp_path / "flood"
+    flood.write_text("#!/bin/sh\nwhile :; do printf '%4096s' x; done\n")
+    flood.chmod(0o755)
+    t0 = time.monotonic()
+    with pytest.raises(RenderError, match="exceeds 100000 bytes"):
+        render._run_capped([str(flood)], timeout=30, max_bytes=100_000)
+    assert time.monotonic() - t0 < 10                    # stopped at the cap, not at the timeout
+    slow = tmp_path / "slow"
+    slow.write_text("#!/bin/sh\nexec sleep 30\n")
+    slow.chmod(0o755)
+    t0 = time.monotonic()
+    with pytest.raises(RenderError, match="did not finish"):
+        render._run_capped([str(slow)], timeout=1, max_bytes=100_000)
+    assert time.monotonic() - t0 < 10
+    assert render._run_capped(["/bin/sh", "-c", "printf ok"], 10, 100) == (b"ok", 0, "")
+
+
+def test_browser_flags_close_every_channel_that_skips_the_proxy(monkeypatch):
+    from ww_scraper import render
+    seen = {}
+
+    def fake(cmd, timeout, max_bytes):
+        seen["cmd"] = cmd
+        return b"<html><body>x</body></html>", 0, ""
+
+    monkeypatch.setattr(render, "_run_capped", fake)
+    monkeypatch.setattr(render, "find_browser", lambda: "/bin/echo")
+    render.render_dom("https://example.org/")
+    cmd = seen["cmd"]
+    assert "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1" in cmd
+    assert "--force-webrtc-ip-handling-policy=disable_non_proxied_udp" in cmd
+    assert "--disable-quic" in cmd and "--proxy-bypass-list=<-loopback>" in cmd
+    assert any(c.startswith("--proxy-server=http://127.0.0.1:") for c in cmd)

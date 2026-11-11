@@ -23,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 from urllib.parse import urlsplit
 
 from .compliance import USER_AGENT
@@ -51,6 +52,46 @@ def find_browser():
     return None
 
 
+def _run_capped(cmd, timeout: float, max_bytes: int):
+    """Run the browser, reading stdout in chunks; kill it as soon as the output passes
+    max_bytes or the time is up. Returns (stdout, exit code, last stderr line)."""
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdin=subprocess.DEVNULL)
+    except OSError as e:
+        raise RenderError(f"cannot start the browser: {e}") from None
+    err = bytearray()
+
+    def drain():
+        for chunk in iter(lambda: proc.stderr.read(4096), b""):
+            del err[:max(0, len(err) + len(chunk) - 8192)]      # keep only the tail
+            err.extend(chunk)
+
+    threading.Thread(target=drain, daemon=True).start()
+    killer = threading.Timer(timeout, proc.kill)
+    killer.start()
+    out = bytearray()
+    too_big = False
+    try:
+        for chunk in iter(lambda: proc.stdout.read(65536), b""):
+            out.extend(chunk)
+            if len(out) > max_bytes:
+                too_big = True
+                proc.kill()
+                break
+        code = proc.wait()
+    finally:
+        timed_out = not killer.is_alive() and not too_big and proc.poll() is not None and proc.returncode < 0
+        killer.cancel()
+        proc.stdout.close()
+    if too_big:
+        raise RenderError(f"rendered page exceeds {max_bytes} bytes")
+    if timed_out:
+        raise RenderError(f"browser did not finish in {timeout:.0f}s")
+    tail = err.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    return bytes(out), code, tail[0]
+
+
 def render_dom(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000,
                timeout: float = 45, max_bytes: int = 5 * 1024 * 1024) -> str:
     """HTML of the page after its scripts ran. Raises RenderError when no browser is
@@ -72,23 +113,27 @@ def render_dom(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000,
                "--hide-scrollbars", f"--user-data-dir={profile}",
                f"--proxy-server=http://127.0.0.1:{proxy.port}",
                "--proxy-bypass-list=<-loopback>",        # loopback goes through the proxy too
+               # nothing may leave the browser except through the proxy: no WebRTC/UDP, no
+               # QUIC, and no name resolution of its own (the proxy resolves and validates)
+               "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+               "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+               "--disable-quic", "--disable-features=WebRtcHideLocalIpsWithMdns,DnsOverHttps",
+               "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
                f"--user-agent={USER_AGENT}",
                f"--virtual-time-budget={max(0, int(wait_ms))}",
                *extra, "--dump-dom", url]
-        try:
-            done = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False,
-                                  stdin=subprocess.DEVNULL)
-        except subprocess.TimeoutExpired:
-            raise RenderError(f"browser did not finish in {timeout:.0f}s") from None
-        except OSError as e:
-            raise RenderError(f"cannot start the browser: {e}") from None
+        out, code, err_tail = _run_capped(cmd, timeout, max_bytes)
+        if code != 0:
+            # Chrome sometimes dies during start-up on a busy machine: one more try,
+            # with a fresh profile directory, before reporting the failure
+            with tempfile.TemporaryDirectory(prefix="ww-scraper-chrome-") as retry_profile:
+                cmd = [f"--user-data-dir={retry_profile}" if c.startswith("--user-data-dir=") else c
+                       for c in cmd]
+                out, code, err_tail = _run_capped(cmd, timeout, max_bytes)
         denied = list(proxy.denied)
-    if done.returncode != 0:
-        tail = done.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
-        raise RenderError(f"browser exited with {done.returncode}: {tail[0][:200]}")
-    if len(done.stdout) > max_bytes:
-        raise RenderError(f"rendered page exceeds {max_bytes} bytes")
-    html = done.stdout.decode("utf-8", "replace")
+    if code != 0:
+        raise RenderError(f"browser exited with {code}: {err_tail[:200]}")
+    html = out.decode("utf-8", "replace")
     if not html.strip():
         raise RenderError("browser returned an empty document")
     render_dom.last_denied = denied              # for the run log and tests
