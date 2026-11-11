@@ -48,6 +48,39 @@ Each run has a dataset, a key-value store and a request queue that share the run
 
 Source: [`ww_scraper/storage.py`](../ww_scraper/storage.py), [`tests/test_storage.py`](../tests/test_storage.py)
 
+## JavaScript rendering behind a filtering proxy
+
+With render turned on, a page that passed the crawler's gates is opened in a local headless Chrome. Every connection the browser makes goes through a loopback proxy that refuses private addresses, so a hostile page cannot use the browser to read your network.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="system-map/render-dark.svg">
+  <img src="system-map/render-light.svg" alt="A page URL that passed the SSRF and robots checks is opened in headless Chrome. The browser connects only through a filtering proxy that refuses private addresses. The DOM after scripts ran replaces the raw HTML." width="100%">
+</picture>
+
+Source: [`ww_scraper/render.py`](../ww_scraper/render.py), [`ww_scraper/proxy.py`](../ww_scraper/proxy.py), [`tests/test_render_concurrency.py`](../tests/test_render_concurrency.py)
+
+## Concurrent crawling with per-host spacing
+
+Several pages can be in flight, but the rate limiter reserves one slot per host, so a single site is never asked more often than the interval. Results are handed to the actor in one thread.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="system-map/concurrency-dark.svg">
+  <img src="system-map/concurrency-light.svg" alt="The request queue feeds a pool of workers. Each worker waits for its host slot in the rate limiter before fetching. Finished pages are processed by the actor one at a time." width="100%">
+</picture>
+
+Source: [`ww_scraper/crawler.py`](../ww_scraper/crawler.py), [`ww_scraper/compliance.py`](../ww_scraper/compliance.py), [`tests/test_render_concurrency.py`](../tests/test_render_concurrency.py)
+
+## Your own actor in one file
+
+init writes a working actor file. run loads it from the command line and gives it the same run context as the built-in actors. The local API never loads a path.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="system-map/file-actors-dark.svg">
+  <img src="system-map/file-actors-light.svg" alt="The init command writes an actor file. The run command loads the file, checks that it defines exactly one actor with a valid name and schema, and runs it with the standard run context." width="100%">
+</picture>
+
+Source: [`ww_scraper/plugins.py`](../ww_scraper/plugins.py), [`ww_scraper/__main__.py`](../ww_scraper/__main__.py), [`tests/test_plugins_report.py`](../tests/test_plugins_report.py)
+
 ## Eleven actors, one crawler
 
 All actors run through the same run context and crawler, so the compliance gates apply to each of them.
