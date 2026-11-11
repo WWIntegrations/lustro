@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 992 248" width="992" height="248" role="img" aria-labelledby="t d">
+<title id="t">How lustro works</title><desc id="d">lustro reads a site only where robots.txt and official APIs allow it. The collector crawls, audits SEO and security headers and gathers licensed images, and writes a report on your own machine.</desc>
+<style>:root{--tlo:#FDFFF5;--tekst:#050507;--linia:#55555A;--strefa:#55555A;--wezel:#FFFFFF;--wezel-tekst:#050507;--akcent:#322DB8;}text{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;fill:var(--tekst)}.n{font-size:13px;font-weight:600;fill:var(--wezel-tekst)}.p{font-size:11px;fill:var(--wezel-tekst)}.s{font-size:12px;fill:var(--strefa)}.tt{font-size:16px;font-weight:700}.wz{fill:var(--wezel);stroke:var(--linia);stroke-width:1.5}.bram{stroke:var(--akcent);stroke-width:3}.mod{stroke-dasharray:0}.st{fill:none;stroke:var(--strefa);stroke-width:1.5;stroke-dasharray:6 4}.kr{stroke:var(--linia);stroke-width:1.5;fill:none}.gr{stroke:var(--akcent);stroke-width:2.5}.gt{fill:var(--akcent)}</style>
+<rect width="992" height="248" fill="#FDFFF5"/>
+<text class="tt" x="40" y="32">How lustro works</text>
+<g><rect class="st" x="16" y="72" width="216" height="160" rx="6"/><text class="s" x="26" y="88">Internet</text></g>
+<g><rect class="st" x="264" y="72" width="712" height="160" rx="6"/><text class="s" x="274" y="88">Your machine</text></g>
+<path class="kr" d="M208 152H280"/><path class="gt" d="M288 152l-9 -5v10z"/>
+<path class="gr" d="M248 102V202"/>
+<path class="kr" d="M456 152H528"/><path class="gt" d="M536 152l-9 -5v10z"/>
+<path class="kr" d="M704 152H776"/><path class="gt" d="M784 152l-9 -5v10z"/>
+<g data-id="site" data-typ="klient"><rect class="wz" x="40" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="124" y="144" text-anchor="middle">Target site</text>
+<text class="p" x="124" y="178" text-anchor="middle">robots.txt, official API</text></g>
+<g data-id="gate" data-typ="bramka"><rect class="wz bram" x="288" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="372" y="144" text-anchor="middle">Policy gate</text>
+<text class="p" x="372" y="178" text-anchor="middle">allowed paths only</text></g>
+<g data-id="collector" data-typ="usluga"><rect class="wz" x="536" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="620" y="144" text-anchor="middle">Collector</text>
+<text class="p" x="620" y="178" text-anchor="middle">crawl, audit, images</text></g>
+<g data-id="report" data-typ="usluga"><rect class="wz" x="784" y="116" width="168" height="72" rx="8"/>
+<text class="n" x="868" y="144" text-anchor="middle">Local report</text>
+<text class="p" x="868" y="178" text-anchor="middle">SEO, security headers</text></g>
+</svg>
