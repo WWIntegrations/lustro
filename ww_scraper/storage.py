@@ -1,5 +1,5 @@
 """Local storage primitives shaped like a hosted scraping platform, kept on disk under ./storage/
-(override with LUSTRO_STORAGE_DIR), similar to platform_storage:
+(override with WW_SCRAPER_STORAGE_DIR), similar to platform_storage:
 
     storage/datasets/<id>/items.jsonl          Dataset (append-only JSONL)
     storage/key_value_stores/<id>/<key>        KeyValueStore record
@@ -32,7 +32,7 @@ class StorageError(ValueError):
 
 
 def default_root() -> Path:
-    return Path(os.environ.get("LUSTRO_STORAGE_DIR", "storage"))
+    return Path(os.environ.get("WW_SCRAPER_STORAGE_DIR", "storage"))
 
 
 def new_id() -> str:

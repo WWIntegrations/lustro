@@ -1,14 +1,14 @@
 """Run webhooks: after a run ends, POST a JSON event to configured URLs.
 
-Hard rules: the target host must be on an allowlist (LUSTRO_WEBHOOK_HOSTS, comma
+Hard rules: the target host must be on an allowlist (WW_SCRAPER_WEBHOOK_HOSTS, comma
 separated; empty = no webhooks are sent), HTTPS is required (plain http only for a
 loopback IP under the explicit test switch), the SSRF guard applies, redirects are not
 followed, and every request is signed:
 
-    X-Lustro-Timestamp: <unix seconds>
-    X-Lustro-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>." + body)>
+    X-WW-Scraper-Timestamp: <unix seconds>
+    X-WW-Scraper-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>." + body)>
 
-The secret comes from LUSTRO_WEBHOOK_SECRET; without it nothing is sent.
+The secret comes from WW_SCRAPER_WEBHOOK_SECRET; without it nothing is sent.
 """
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ def verify(secret: str, timestamp: str, body: bytes, signature: str, max_age: in
 
 
 def config_from_env():
-    hosts = [h.strip().lower() for h in os.environ.get("LUSTRO_WEBHOOK_HOSTS", "").split(",") if h.strip()]
-    return frozenset(hosts), os.environ.get("LUSTRO_WEBHOOK_SECRET", "")
+    hosts = [h.strip().lower() for h in os.environ.get("WW_SCRAPER_WEBHOOK_HOSTS", "").split(",") if h.strip()]
+    return frozenset(hosts), os.environ.get("WW_SCRAPER_WEBHOOK_SECRET", "")
 
 
 def send(url, payload, *, secret, allow_hosts, allow_loopback=False, timeout=10, session=None):
@@ -53,7 +53,7 @@ def send(url, payload, *, secret, allow_hosts, allow_loopback=False, timeout=10,
     p = urlparse(url)
     host = (p.hostname or "").lower()
     if not secret:
-        return False, "refused: LUSTRO_WEBHOOK_SECRET is not set"
+        return False, "refused: WW_SCRAPER_WEBHOOK_SECRET is not set"
     if not allow_hosts or not host_allowed(host, allow_hosts):
         return False, f"refused: host {host!r} not in webhook allowlist"
     loop_ok = allow_loopback and is_loopback_host(host)
@@ -65,7 +65,7 @@ def send(url, payload, *, secret, allow_hosts, allow_loopback=False, timeout=10,
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     ts = str(int(time.time()))
     headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT,
-               "X-Lustro-Timestamp": ts, "X-Lustro-Signature": sign(secret, ts, body)}
+               "X-WW-Scraper-Timestamp": ts, "X-WW-Scraper-Signature": sign(secret, ts, body)}
     sess = session or pin_session(requests.Session(), allow_loopback)
     try:
         r = sess.post(url, data=body, headers=headers, timeout=timeout, allow_redirects=False)

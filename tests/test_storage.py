@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from lustro.storage import (MemoryRequestQueue, RequestQueue, StorageError, normalize_url,
+from ww_scraper.storage import (MemoryRequestQueue, RequestQueue, StorageError, normalize_url,
                             valid_id, valid_key)
 
 

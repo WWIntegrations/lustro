@@ -1,5 +1,5 @@
 """HTML -> Markdown and metadata extraction (stdlib html.parser) - offline."""
-from lustro.extract import parse_html
+from ww_scraper.extract import parse_html
 
 HTML = """<!doctype html><html lang="en"><head>
 <title> Hello  World </title>

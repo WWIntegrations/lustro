@@ -69,7 +69,7 @@ class InputError(ValueError):
 
 
 def default_lang() -> str:
-    lang = os.environ.get("LUSTRO_LANG", "en").lower()[:2]
+    lang = os.environ.get("WW_SCRAPER_LANG", "en").lower()[:2]
     return lang if lang in _MSG else "en"
 
 

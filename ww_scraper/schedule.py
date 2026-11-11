@@ -1,5 +1,5 @@
-"""`lustro schedule` only PRINTS a crontab line and a launchd plist. Installing either is
-the operator's decision; Lustro never installs persistence by itself."""
+"""`ww-scraper schedule` only PRINTS a crontab line and a launchd plist. Installing either is
+the operator's decision; ww-scraper never installs persistence by itself."""
 from __future__ import annotations
 
 import itertools
@@ -44,7 +44,7 @@ def plist_dumps(obj: dict) -> str:
 
 
 def _command(actor, input_json, workdir, python):
-    return [python, "-m", "lustro", "run", actor, "--input", input_json,
+    return [python, "-m", "ww_scraper", "run", actor, "--input", input_json,
             "--storage", str(Path(workdir) / "storage")]
 
 
@@ -76,7 +76,7 @@ def launchd_plist(actor: str, input_json: str, cron: str, workdir: str, python: 
     parts = cron.split()
     if len(parts) != 5:
         raise ValueError("cron expression needs 5 fields")
-    label = label or f"io.github.wwintegrations.lustro.{actor}"
+    label = label or f"io.github.wwintegrations.ww-scraper.{actor}"
     python = python or sys.executable
     plist = {
         "Label": label,
@@ -99,7 +99,7 @@ def launchd_plist(actor: str, input_json: str, cron: str, workdir: str, python: 
 
 
 def render(actor, input_json, cron, workdir, python=None) -> str:
-    label = f"io.github.wwintegrations.lustro.{actor}"
+    label = f"io.github.wwintegrations.ww-scraper.{actor}"
     out = ["# crontab line (install yourself with `crontab -e`):",
            cron_line(actor, input_json, cron, workdir, python), ""]
     try:

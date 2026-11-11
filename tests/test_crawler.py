@@ -1,8 +1,8 @@
 """PoliteCrawler against the local test site: robots, SSRF per hop, retries, limits."""
 import time
 
-from lustro.crawler import PoliteCrawler
-from lustro.storage import MemoryRequestQueue
+from ww_scraper.crawler import PoliteCrawler
+from ww_scraper.storage import MemoryRequestQueue
 
 
 def test_default_config_refuses_loopback(site):

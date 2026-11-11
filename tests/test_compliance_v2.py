@@ -2,14 +2,14 @@
 import email.utils
 import time
 
-from lustro.compliance import (USER_AGENT, RateLimiter, RobotsCache, check_target,
+from ww_scraper.compliance import (USER_AGENT, RateLimiter, RobotsCache, check_target,
                                is_loopback_host, make_session, parse_retry_after,
                                redact_obj, redact_pii)
 
 
 def test_user_agent_has_version_and_contact():
-    from lustro import __version__
-    assert USER_AGENT.startswith(f"Lustro/{__version__} (+http")
+    from ww_scraper import __version__
+    assert USER_AGENT.startswith(f"ww-scraper/{__version__} (+http")
 
 
 def test_loopback_only_with_explicit_switch():
@@ -64,7 +64,7 @@ def test_robots_cache_against_site(site):
     assert rc.allowed(site.base + "/private/secret") == (False, "disallowed by robots.txt")
     assert rc.get(site.base + "/").sitemaps == [site.base + "/sitemap_index.xml"]
     assert site.hits.count("/robots.txt") == 1          # cached per origin
-    assert all(a.startswith("Lustro/") for a in site.agents)
+    assert all(a.startswith("ww-scraper/") for a in site.agents)
 
 
 def test_robots_cache_refuses_loopback_by_default(site):
@@ -82,8 +82,8 @@ def test_dns_rebinding_cannot_reach_loopback(site, monkeypatch):
     import pytest
     import requests
 
-    from lustro import compliance
-    from lustro.compliance import SSRFBlocked, pin_session
+    from ww_scraper import compliance
+    from ww_scraper.compliance import SSRFBlocked, pin_session
 
     port = int(site.base.rsplit(":", 1)[1])
     real = socket.getaddrinfo
@@ -105,7 +105,7 @@ def test_dns_rebinding_cannot_reach_loopback(site, monkeypatch):
     assert site.hits == []
 
     # end to end through the crawler: blocked, never retried, never connected
-    from lustro.crawler import PoliteCrawler
+    from ww_scraper.crawler import PoliteCrawler
     calls.clear()
     c = PoliteCrawler(min_interval=0, allow_loopback=True)
     res = c.fetch(url)
@@ -116,7 +116,7 @@ def test_dns_rebinding_cannot_reach_loopback(site, monkeypatch):
 def test_pinned_adapter_connects_to_validated_ip(site):
     import requests
 
-    from lustro.compliance import SSRFBlocked, pin_session
+    from ww_scraper.compliance import SSRFBlocked, pin_session
     ok = pin_session(requests.Session(), allow_loopback=True).get(site.base + "/about", timeout=5)
     assert ok.status_code == 200
     import pytest
@@ -128,7 +128,7 @@ import ipaddress  # noqa: E402
 
 import pytest  # noqa: E402
 
-from lustro.compliance import ip_blocked  # noqa: E402
+from ww_scraper.compliance import ip_blocked  # noqa: E402
 
 
 @pytest.mark.parametrize("addr", [

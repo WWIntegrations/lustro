@@ -1,6 +1,6 @@
 """Offline unit tests for the compliance spine - no network required."""
-from lustro.compliance import host_allowed, is_public_address
-from lustro.models import Resource, clean_url, sanitize
+from ww_scraper.compliance import host_allowed, is_public_address
+from ww_scraper.models import Resource, clean_url, sanitize
 
 
 def test_clean_url_rejects_non_http():
@@ -41,16 +41,16 @@ def test_resource_sanitizes_on_construction():
 
 
 def test_make_session_is_polite():
-    from lustro.compliance import PoliteSession, USER_AGENT, make_session
+    from ww_scraper.compliance import PoliteSession, USER_AGENT, make_session
     s = make_session(0.0)
     assert isinstance(s, PoliteSession)
-    assert "Lustro" in s.headers["User-Agent"]
-    assert USER_AGENT.startswith("Lustro/")
+    assert "ww-scraper" in s.headers["User-Agent"]
+    assert USER_AGENT.startswith("ww-scraper/")
 
 
 def test_rate_limiter_enforces_per_host_interval():
     import time
-    from lustro.compliance import RateLimiter
+    from ww_scraper.compliance import RateLimiter
     rl = RateLimiter(min_interval=0.05)
     rl.wait("host-a")                 # first call for a host is free
     t0 = time.monotonic()

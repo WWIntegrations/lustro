@@ -4,7 +4,7 @@ It exercises every compliance path: robots.txt with a Disallow, a sitemap index 
 gzip child, redirect chains, a redirect into a private address (SSRF), a 429 with
 Retry-After, a 404, a noindex page, security headers, cookies, llms.txt and PII.
 
-    python3 -m lustro testsite --port 8766
+    python3 -m ww_scraper testsite --port 8766
 """
 from __future__ import annotations
 
@@ -14,15 +14,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOME = """<!doctype html>
 <html lang="pl"><head>
-<title>Lustro Test Site - home page</title>
-<meta name="description" content="A tiny local website used to test Lustro actors offline, end to end.">
+<title>ww-scraper Test Site - home page</title>
+<meta name="description" content="A tiny local website used to test ww-scraper actors offline, end to end.">
 <link rel="canonical" href="{base}/">
 <link rel="alternate" hreflang="pl" href="{base}/">
 <link rel="alternate" hreflang="en" href="{base}/en">
-<meta property="og:title" content="Lustro Test Site">
+<meta property="og:title" content="ww-scraper Test Site">
 <meta property="og:description" content="Offline fixture">
-<meta property="og:site_name" content="Lustro Test Site">
-<script type="application/ld+json">{{"@context":"https://schema.org","@graph":[{{"@type":"Organization","name":"Lustro"}},{{"@type":"WebSite"}}]}}</script>
+<meta property="og:site_name" content="ww-scraper Test Site">
+<script type="application/ld+json">{{"@context":"https://schema.org","@graph":[{{"@type":"Organization","name":"ww-scraper"}},{{"@type":"WebSite"}}]}}</script>
 <style>body{{color:red}}</style>
 </head><body>
 <header><a href="/">Logo</a></header>
@@ -52,7 +52,7 @@ ABOUT = """<!doctype html><html><head><title>About</title></head><body>
 <h1>About us</h1><h1>Second h1</h1><p>About page.</p><a href="/">Home</a>
 </body></html>"""
 
-POST = """<!doctype html><html lang="en"><head><title>First post on the Lustro test blog</title>
+POST = """<!doctype html><html lang="en"><head><title>First post on the ww-scraper test blog</title>
 <meta name="description" content="Short."></head><body>
 <article><h1>Post 1</h1><p>Post body. See <a href="/redirect-1">old page</a>.</p></article>
 <aside>Sidebar must not appear</aside></body></html>"""
@@ -79,9 +79,9 @@ SITEMAP_BLOG = """<?xml version="1.0" encoding="UTF-8"?>
 <url><loc>{base}/blog/post-1</loc></url>
 </urlset>"""
 
-LLMS = """# Lustro Test Site
+LLMS = """# ww-scraper Test Site
 
-> Offline fixture for Lustro.
+> Offline fixture for ww-scraper.
 
 Some notes.
 

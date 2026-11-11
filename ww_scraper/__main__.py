@@ -1,12 +1,12 @@
 """CLI.
 
-    lustro run <actor> --input '<json>' [--storage DIR] [--resume RUN_ID] [--webhook URL]
-    lustro actors                     list actors and their input fields
-    lustro export <dataset-id> [--format json|jsonl|csv]
-    lustro serve [--port 8765]        local API on 127.0.0.1
-    lustro schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
-    lustro testsite [--port 8766]     local fixture website for demos/tests
-    lustro "<query>" [...]            v0.1 media search (unchanged)
+    ww-scraper run <actor> --input '<json>' [--storage DIR] [--resume RUN_ID] [--webhook URL]
+    ww-scraper actors                     list actors and their input fields
+    ww-scraper export <dataset-id> [--format json|jsonl|csv]
+    ww-scraper serve [--port 8765]        local API on 127.0.0.1
+    ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
+    ww-scraper testsite [--port 8766]     local fixture website for demos/tests
+    ww-scraper "<query>" [...]            v0.1 media search (unchanged)
 
 --allow-loopback is a TEST switch: it lets requests reach literal loopback IPs
 (127.0.0.1, ::1), e.g. the bundled test site. It is never on by default.
@@ -24,7 +24,7 @@ COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite"}
 
 
 def _legacy(argv) -> int:
-    ap = argparse.ArgumentParser(prog="lustro", description="Compliant media collector.")
+    ap = argparse.ArgumentParser(prog="ww-scraper", description="Compliant media collector.")
     ap.add_argument("query")
     ap.add_argument("--sources", default="", help="comma-separated source names (default: all)")
     ap.add_argument("--limit", type=int, default=12)
@@ -45,15 +45,15 @@ def _legacy(argv) -> int:
 
 
 def _parser():
-    ap = argparse.ArgumentParser(prog="lustro", description=__doc__,
+    ap = argparse.ArgumentParser(prog="ww-scraper", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p):
-        p.add_argument("--storage", default=None, help="storage dir (default ./storage or $LUSTRO_STORAGE_DIR)")
+        p.add_argument("--storage", default=None, help="storage dir (default ./storage or $WW_SCRAPER_STORAGE_DIR)")
         p.add_argument("--lang", default=None, choices=["en", "pl"], help="language of validation errors")
         p.add_argument("--allow-loopback", action="store_true",
-                       help="TEST ONLY: allow requests to 127.0.0.1/::1 (e.g. `lustro testsite`)")
+                       help="TEST ONLY: allow requests to 127.0.0.1/::1 (e.g. `ww-scraper testsite`)")
 
     r = sub.add_parser("run", help="run an actor")
     r.add_argument("actor")
@@ -75,7 +75,7 @@ def _parser():
     s = sub.add_parser("serve", help="local API (127.0.0.1 only)")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
-    s.add_argument("--token", default=None, help="Bearer token (default: $LUSTRO_API_TOKEN or a random one)")
+    s.add_argument("--token", default=None, help="Bearer token (default: $WW_SCRAPER_API_TOKEN or a random one)")
     s.add_argument("--no-auth", action="store_true", help="disable the token (loopback only; not recommended)")
     common(s)
 
@@ -142,19 +142,19 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "serve":
-        from .api import LustroAPI
+        from .api import ScraperAPI
         try:
-            api = LustroAPI(Storage(a.storage), a.host, a.port, token=a.token,
+            api = ScraperAPI(Storage(a.storage), a.host, a.port, token=a.token,
                             allow_loopback=a.allow_loopback, lang=a.lang, no_auth=a.no_auth)
         except ValueError as e:
             print(str(e), file=sys.stderr)
             return 2
         if not api.token:
-            print(f"Lustro API on {api.url} (WARNING: auth disabled with --no-auth)")
+            print(f"ww-scraper API on {api.url} (WARNING: auth disabled with --no-auth)")
         elif api.token_generated:
-            print(f"Lustro API on {api.url}\nBearer token (shown once): {api.token}", flush=True)
+            print(f"ww-scraper API on {api.url}\nBearer token (shown once): {api.token}", flush=True)
         else:
-            print(f"Lustro API on {api.url} (Bearer token required)")
+            print(f"ww-scraper API on {api.url} (Bearer token required)")
         try:
             api.serve_forever()
         except KeyboardInterrupt:
@@ -163,7 +163,7 @@ def main(argv=None) -> int:
 
     # run
     if get_actor(a.actor) is None:
-        print(f"unknown actor: {a.actor} (see `lustro actors`)", file=sys.stderr)
+        print(f"unknown actor: {a.actor} (see `ww-scraper actors`)", file=sys.stderr)
         return 2
     try:
         data = _load_input(a)
