@@ -96,7 +96,9 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `apify_s
 
 `PoliteCrawler` is the only way actors fetch pages: robots.txt per origin (RFC 9309, cached, with
 Crawl-delay), a minimum interval per host, retries with backoff on 429/5xx that honour
-`Retry-After` (and give up if asked to wait longer than the cap), `max_pages` /
+`Retry-After` (and give up if asked to wait longer than the cap), adaptive pacing (a 429
+or 503 doubles that host's interval for the rest of the run, ten clean answers in a row
+ease it back by a quarter, never below the interval or Crawl-delay), `max_pages` /
 `max_depth`, same-origin scope with include/exclude globs, the SSRF guard on every
 redirect hop, a content-type filter and a byte limit. HTML is turned into Markdown and
 metadata with the standard library only (`html.parser`).

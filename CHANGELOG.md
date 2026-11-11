@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-11-12)
+
+- Adaptive pacing per host. A 429 or 503 slows the whole host down, not only the request
+  that got it: its interval doubles (first step 0.5 s, cap 60 s) and the run counts it as
+  `throttled`. Every ten plain successes in a row ease the interval back by a quarter, and
+  it never goes below the configured interval or the robots.txt Crawl-delay. The HTML run
+  report shows the count. `crawler.adaptive = False` keeps the old fixed pacing.
+- Tests: 140 to 145.
+
 ## 0.4.0 (2026-11-11)
 
 - JavaScript rendering (`"render": true`): pages are re-read through a local headless
