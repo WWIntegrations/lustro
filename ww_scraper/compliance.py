@@ -20,6 +20,7 @@ import requests
 import requests.adapters
 
 from ._version import __version__
+from .robots import RobotsRules
 
 _CONTACT = os.environ.get("WW_SCRAPER_CONTACT", "https://github.com/WWIntegrations/ww-scraper")
 USER_AGENT = f"ww-scraper/{__version__} (+{_CONTACT}) python-requests"
@@ -384,9 +385,7 @@ class RobotsCache:
                 raw = _read_capped(resp, self.max_bytes)
             finally:
                 resp.close()
-            rp = urllib.robotparser.RobotFileParser()
-            rp.parse(raw.decode("utf-8", "replace").splitlines())
-            return RobotsEntry("ok", rp, code)
+            return RobotsEntry("ok", RobotsRules(raw.decode("utf-8", "replace")), code)
         return RobotsEntry("unreachable")
 
 

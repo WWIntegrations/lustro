@@ -25,6 +25,11 @@ BLOCKS = {"p", "div", "section", "article", "main", "body", "header", "figure",
           "figcaption", "address", "details", "summary", "dl", "dt", "dd", "center"}
 
 
+FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/feed+json")
+MAX_JSONLD_BLOCKS = 20
+MAX_JSONLD_CHARS = 200_000
+
+
 class Node:
     __slots__ = ("tag", "attrs", "children", "parent")
 
@@ -306,6 +311,9 @@ class Page:
     headings: dict = field(default_factory=dict)
     jsonld_types: list = field(default_factory=list)
     jsonld_errors: int = 0
+    jsonld: list = field(default_factory=list)
+    twitter: dict = field(default_factory=dict)
+    feeds: list = field(default_factory=list)
     hreflang: list = field(default_factory=list)
     links: list = field(default_factory=list)
     images: list = field(default_factory=list)
@@ -366,6 +374,8 @@ def parse_html(html: str, base_url: str) -> Page:
                 page.robots = ",".join(filter(None, [page.robots, content.lower()]))
             elif prop.startswith("og:") and prop not in page.og:
                 page.og[prop] = content
+            elif name.startswith("twitter:") and name not in page.twitter:
+                page.twitter[name] = content
         elif t == "link":
             rel = (a.get("rel") or "").lower().split()
             href = _abs(base, a.get("href"))
@@ -373,14 +383,22 @@ def parse_html(html: str, base_url: str) -> Page:
                 page.canonical = href
             elif "alternate" in rel and a.get("hreflang") and href:
                 page.hreflang.append({"hreflang": a["hreflang"], "href": href})
+            elif ("alternate" in rel and href and len(page.feeds) < 20
+                  and (a.get("type") or "").lower() in FEED_TYPES):
+                page.feeds.append({"url": href, "type": a["type"].lower(),
+                                   "title": (a.get("title") or "")[:200]})
         elif t in ("h1", "h2", "h3"):
             txt = _WS.sub(" ", n.text()).strip()
             if txt:
                 page.headings[t].append(txt[:300])
         elif t == "script" and (a.get("type") or "").lower() == "application/ld+json":
             try:
-                _jsonld_types(json.loads(n.text()), page.jsonld_types)
-            except ValueError:
+                raw = n.text()
+                obj = json.loads(raw)
+                _jsonld_types(obj, page.jsonld_types)
+                if len(page.jsonld) < MAX_JSONLD_BLOCKS and len(raw) <= MAX_JSONLD_CHARS:
+                    page.jsonld.append(obj)
+            except (ValueError, RecursionError):
                 page.jsonld_errors += 1
         elif t == "a" and a.get("href"):
             href = _abs(base, a["href"])

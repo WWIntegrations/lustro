@@ -1,4 +1,4 @@
-"""The seven actors end to end against the local test site (offline)."""
+"""The first seven actors end to end against the local test site (offline)."""
 import gzip
 
 import pytest
