@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from urllib.parse import urldefrag
 
-from ..actor import MIN_INTERVAL, REDACT, START_URLS, Actor
+from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
 from ..compliance import origin_of
 
 
@@ -43,6 +43,8 @@ class LinkChecker(Actor):
             "includeImages": {"type": "boolean", "default": True},
             "onlyProblems": {"type": "boolean", "default": False},
             "minIntervalSecs": MIN_INTERVAL,
+            "maxConcurrency": CONCURRENCY,
+            "render": RENDER,
             "redactPii": REDACT,
         },
     }

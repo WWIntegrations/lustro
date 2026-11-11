@@ -62,6 +62,16 @@ POST = """<!doctype html><html lang="en"><head><title>First post on the ww-scrap
 NOINDEX = """<!doctype html><html><head><title>Hidden</title>
 <meta name="robots" content="noindex"></head><body><p>Do not index me.</p></body></html>"""
 
+JS_PAGE = """<!doctype html><html lang="en"><head><title>Script page</title></head><body>
+<main><h1>Loading</h1><p id="app">empty</p><p id="probe">not tried</p></main>
+<script>
+document.querySelector("h1").textContent = "Rendered heading";
+document.getElementById("app").textContent = "Text written by a script.";
+fetch("http://169.254.169.254/latest/meta-data/").then(
+  function () { document.getElementById("probe").textContent = "PROBE REACHED"; },
+  function () { document.getElementById("probe").textContent = "probe refused"; });
+</script></body></html>"""
+
 ROBOTS = ("User-agent: *\nDisallow: /private/\nDisallow: /*.bak$\nAllow: /private/open\n"
           "Crawl-delay: 0\n\nUser-agent: badbot\nDisallow: /\n\nSitemap: {base}/sitemap_index.xml\n")
 
@@ -172,6 +182,8 @@ class _Handler(BaseHTTPRequestHandler):
             "/private/open": lambda: self._send(200, "<html><head><title>Open</title></head><body><p>Open page.</p></body></html>"),
             "/old.bak": lambda: self._send(200, "<p>backup</p>"),
             "/changing": lambda: self._changing(),
+            "/cached": lambda: self._cached(),
+            "/js": lambda: self._send(200, JS_PAGE),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
             "/llms-full.txt": lambda: self._send(200, "# Full\n\nAll the docs in one file.\n", "text/plain"),
             "/redirect-1": lambda: self._send(301, headers={"Location": "/redirect-2"}),
@@ -205,6 +217,20 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(404, "<h1>404</h1>")
         return self._send(200, f"<html><head><title>Changing</title></head><body><main><p>Version {state}.</p></main></body></html>")
 
+    def _cached(self):
+        """A page with an ETag and Last-Modified that answers 304 when the validator matches."""
+        site = self.site
+        with site.lock:
+            version = site.cached
+            site.conditional.append({"ifNoneMatch": self.headers.get("If-None-Match"),
+                                     "ifModifiedSince": self.headers.get("If-Modified-Since")})
+        etag = f'"v{version}"'
+        headers = {"ETag": etag, "Last-Modified": "Tue, 10 Nov 2026 08:00:00 GMT"}
+        if self.headers.get("If-None-Match") == etag:
+            return self._send(304, headers=headers)
+        return self._send(200, f'<html><head><title>Cached</title></head><body><main><p>Cached version {version}.</p>'
+                               f'<a href="/about">About</a></main></body></html>', headers=headers)
+
     def _flaky(self, code):
         site = self.site
         with site.lock:
@@ -225,6 +251,8 @@ class TestSite:
         self.agents: list = []
         self.counter: dict = {}
         self.changing = "1"      # body version of /changing, or "gone" for a 404
+        self.cached = "1"        # body version of /cached (its ETag is "v<version>")
+        self.conditional: list = []   # validators each /cached request carried
         self.lock = threading.Lock()
         site = self
 
@@ -246,6 +274,8 @@ class TestSite:
             self.agents.clear()
             self.counter.clear()
             self.changing = "1"
+            self.cached = "1"
+            self.conditional.clear()
 
     def stop(self):
         self.httpd.shutdown()

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0 (2026-11-11)
+
+- JavaScript rendering (`"render": true`): pages are re-read through a local headless
+  Chrome. The page URL passes the crawler's gates first, and every connection the browser
+  opens goes through a filtering proxy (`ww_scraper/proxy.py`) that refuses private,
+  loopback and link-local addresses. If no browser is installed the raw HTML is used and
+  the run records `renderFailed`.
+- Concurrent crawling (`"maxConcurrency"`, up to 16): several pages in flight, never two
+  requests to one host closer than `minIntervalSecs`. One robots.txt request per origin.
+- Your own actors: `ww-scraper init <name>` writes a working one-file actor,
+  `ww-scraper run ./file.py` runs it with the same gates as the built-in ones. The local
+  API never loads a path.
+- `ww-scraper runs` lists runs; `ww-scraper report <run-id>` writes a self-contained
+  HTML report (no scripts, no external references, all values escaped).
+- `change-monitor` revalidates instead of re-downloading: a page seen before is asked
+  for with `If-None-Match` / `If-Modified-Since`, a 304 counts as unchanged (`notModified`
+  in OUTPUT) and the links it had last time are still followed. Validators echoed back to a
+  server are checked first (one printable line, at most 200 characters, a real HTTP date).
+  `"conditionalRequests": false` turns it off.
+- Tests: 122 to 140.
+
 ## 0.3.0 (2026-11-11)
 
 - Renamed from `lustro` to `ww-scraper`: package `ww_scraper`, command `ww-scraper`,
