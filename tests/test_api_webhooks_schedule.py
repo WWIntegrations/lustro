@@ -52,6 +52,12 @@ def test_api_run_flow(api, site):
     assert r.headers["Content-Type"].startswith("text/csv") and r.text.startswith("url,")
     r = requests.get(f"{api.url}/v2/datasets/{ds}/items?format=jsonl&limit=1", headers=_h(), timeout=5)
     assert len(r.text.strip().split("\n")) == 1
+    r = requests.get(f"{api.url}/v2/datasets/{ds}/items?format=html&fields=url,title", headers=_h(), timeout=5)
+    assert r.headers["Content-Security-Policy"] == "sandbox" and "<th>url</th><th>title</th>" in r.text
+    r = requests.get(f"{api.url}/v2/datasets/{ds}/items?format=xlsx", headers=_h(), timeout=5)
+    assert r.content[:2] == b"PK" and r.headers["Content-Disposition"].endswith('.xlsx"')
+    assert requests.get(f"{api.url}/v2/datasets/{ds}/items?format=parquet", headers=_h(),
+                        timeout=5).status_code == 400
     r = requests.get(f"{api.url}/v2/key-value-stores/{run['defaultKeyValueStoreId']}/records/INPUT",
                      headers=_h(), timeout=5)
     assert r.json()["maxPages"] == 3 and r.headers["Content-Security-Policy"] == "sandbox"
@@ -189,6 +195,10 @@ def test_cli_run_actors_and_export(site, tmp_path, capsys):
     assert rec["status"] == "SUCCEEDED" and rec["itemCount"] == 3
     assert main(["export", rec["defaultDatasetId"], "--format", "csv", "--storage", st]) == 0
     assert capsys.readouterr().out.startswith("url,")
+    out_file = tmp_path / "items.xlsx"
+    assert main(["export", rec["defaultDatasetId"], "--format", "xlsx", "--fields", "url",
+                 "--out", str(out_file), "--storage", st]) == 0
+    assert out_file.read_bytes()[:2] == b"PK" and capsys.readouterr().out.strip() == str(out_file)
     assert main(["run", "sitemap", "--input", "{}", "--storage", st, "--lang", "pl"]) == 2
     assert "startUrls: pole jest wymagane" in capsys.readouterr().err
     assert main(["run", "sitemap", "--input", "{oops", "--storage", st]) == 2

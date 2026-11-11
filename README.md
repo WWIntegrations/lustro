@@ -73,7 +73,7 @@ ww-scraper serve                                      # local HTTP API, token re
 | Pages that build their content with JavaScript | `"render": true` re-reads each page through a local headless Chrome; the browser's connections go through a proxy that refuses private addresses |
 | Faster crawls over several hosts | `"maxConcurrency": N` (1 to 16); one host is still never asked more often than `minIntervalSecs` |
 | A scraper for one specific site | `ww-scraper init <name>` writes a working actor; edit `run(ctx)` |
-| A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format csv` |
+| A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format xlsx --out items.xlsx` |
 | Know why a URL was skipped | `robots-audit` shows the group, the rule and the pattern that decided |
 | Watch a site for changes | `change-monitor` with a `monitorName`, on a schedule printed by `ww-scraper schedule` |
 
@@ -87,7 +87,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `apify_s
 
 | Primitive      | What it is                                                              |
 |----------------|-------------------------------------------------------------------------|
-| `Dataset`      | append-only JSONL; export as `json`, `jsonl` or `csv` (formula-safe)     |
+| `Dataset`      | append-only JSONL; export as `json`, `jsonl`, `csv`, `xlsx`, `xml` or `html`, with `fields` to pick and order columns (formulas never evaluated) |
 | `KeyValueStore`| named files with their content-type (`INPUT`, `OUTPUT`, `llms.txt`...)   |
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash           |
 | `Actor`        | name + `input_schema` (validated, errors in English or Polish) + `run(ctx)` |
@@ -125,6 +125,7 @@ ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"], "maxPa
 ww-scraper run website-content-crawler --input-file input.json --print-items
 ww-scraper run sitemap --resume <run-id>            # continue an interrupted run
 ww-scraper export <dataset-id> --format csv
+ww-scraper export <dataset-id> --format xlsx --fields url,title --out items.xlsx
 ww-scraper run robots-audit --input '{"startUrls": ["https://example.com/"], "testPaths": ["/", "/admin"]}'
 ww-scraper run change-monitor --input '{"startUrls": ["https://example.com/"], "monitorName": "example"}'
 ```
@@ -159,7 +160,7 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 | `GET /v2/acts` | list actors with input schemas |
 | `POST /v2/acts/<name>/runs?waitForFinish=60` | start a run, body = input JSON |
 | `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop) |
-| `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv` | items |
+| `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html&fields=a,b` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
 
 Requests with a non-loopback `Host` header (DNS-rebinding guard) or a non-loopback
