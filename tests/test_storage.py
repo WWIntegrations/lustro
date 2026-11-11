@@ -23,7 +23,7 @@ def test_dataset_append_and_exports(storage):
     assert "'=HYPERLINK(1)" in lines[3]          # formula injection neutralised
     assert '"{""n"": 1}"' in lines[2]            # nested values JSON-encoded
     with pytest.raises(StorageError):
-        ds.export("xml")
+        ds.export("parquet")
     with pytest.raises(StorageError):
         ds.push(["not an object"])
 
@@ -100,3 +100,69 @@ def test_run_records_roundtrip(storage):
     storage.save_run({"id": "run-1", "status": "READY"})
     assert storage.load_run("run-1")["status"] == "READY"
     assert [r["id"] for r in storage.list_runs()] == ["run-1"]
+
+
+def _xlsx_rows(body):
+    import io, zipfile
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with zipfile.ZipFile(io.BytesIO(body)) as z:
+        assert z.testzip() is None
+        assert {"[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml"} <= set(z.namelist())
+        root = ET.fromstring(z.read("xl/worksheets/sheet1.xml"))
+    rows = []
+    for row in root.iter(f"{{{ns['m']}}}row"):
+        cells = {}
+        for c in row:
+            ref = "".join(ch for ch in c.get("r") if ch.isalpha())
+            if c.get("t") == "inlineStr":
+                cells[ref] = ("s", c.find("m:is/m:t", ns).text)
+            else:
+                cells[ref] = ("n", c.find("m:v", ns).text)
+        rows.append(cells)
+    return rows
+
+
+def test_xlsx_export_is_a_valid_workbook_where_formulas_stay_text(storage):
+    ds = storage.dataset("x")
+    ds.push([{"name": "=HYPERLINK(\"http://evil\")", "n": 3, "ok": True},
+             {"name": "a\x00b<c>", "n": 2.5, "nested": {"k": [1]}}])
+    body, ctype = ds.export("xlsx")
+    assert ctype.endswith("spreadsheetml.sheet")
+    rows = _xlsx_rows(body)
+    assert rows[0] == {"A": ("s", "name"), "B": ("s", "n"), "C": ("s", "ok"), "D": ("s", "nested")}
+    assert rows[1]["A"] == ("s", "=HYPERLINK(\"http://evil\")")   # inline string: never evaluated
+    assert rows[1]["B"] == ("n", "3") and rows[1]["C"] == ("s", "true")
+    assert rows[2]["A"] == ("s", "ab<c>")                          # NUL cannot live in XML: dropped
+    assert rows[2]["D"] == ("s", '{"k": [1]}')
+    assert ds.export("xlsx")[0] == body                             # same items, same bytes
+
+
+def test_xml_export_is_well_formed_with_keys_as_attributes(storage):
+    import xml.etree.ElementTree as ET
+    ds = storage.dataset("x")
+    ds.push({"weird key<>": "v&\x1bw", "n": 1})
+    body, ctype = ds.export("xml")
+    assert ctype.startswith("application/xml")
+    root = ET.fromstring(body)
+    fields = root.findall("item/field")
+    assert [(f.get("name"), f.text) for f in fields] == [("weird key<>", "v&w"), ("n", "1")]
+
+
+def test_html_export_escapes_everything_and_forbids_scripts(storage):
+    ds = storage.dataset("x")
+    ds.push({"<b>col</b>": "<script>alert(1)</script>", "u": "\" onmouseover=\"x"})
+    body, ctype = ds.export("html")
+    text = body.decode()
+    assert ctype.startswith("text/html")
+    assert "<script>" not in text and "&lt;script&gt;" in text and "&lt;b&gt;col&lt;/b&gt;" in text
+    assert "&quot; onmouseover=&quot;x" in text
+    assert "default-src 'none'" in text
+
+
+def test_fields_selects_and_orders_columns_in_every_format(storage):
+    ds = storage.dataset("x")
+    ds.push([{"a": 1, "b": 2, "c": 3}, {"c": 4}])
+    assert json.loads(ds.export("json", fields=["c", "a"])[0]) == [{"c": 3, "a": 1}, {"c": 4}]
+    assert ds.export("csv", fields=["c", "a"])[0].decode().split("\r\n")[:3] == ["c,a", "3,1", "4,"]
+    assert list(_xlsx_rows(ds.export("xlsx", fields=["c", "a"])[0])[0].values()) == [("s", "c"), ("s", "a")]
