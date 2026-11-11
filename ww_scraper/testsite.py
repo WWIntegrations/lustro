@@ -62,6 +62,16 @@ POST = """<!doctype html><html lang="en"><head><title>First post on the ww-scrap
 NOINDEX = """<!doctype html><html><head><title>Hidden</title>
 <meta name="robots" content="noindex"></head><body><p>Do not index me.</p></body></html>"""
 
+JS_PAGE = """<!doctype html><html lang="en"><head><title>Script page</title></head><body>
+<main><h1>Loading</h1><p id="app">empty</p><p id="probe">not tried</p></main>
+<script>
+document.querySelector("h1").textContent = "Rendered heading";
+document.getElementById("app").textContent = "Text written by a script.";
+fetch("http://169.254.169.254/latest/meta-data/").then(
+  function () { document.getElementById("probe").textContent = "PROBE REACHED"; },
+  function () { document.getElementById("probe").textContent = "probe refused"; });
+</script></body></html>"""
+
 ROBOTS = ("User-agent: *\nDisallow: /private/\nDisallow: /*.bak$\nAllow: /private/open\n"
           "Crawl-delay: 0\n\nUser-agent: badbot\nDisallow: /\n\nSitemap: {base}/sitemap_index.xml\n")
 
@@ -172,6 +182,7 @@ class _Handler(BaseHTTPRequestHandler):
             "/private/open": lambda: self._send(200, "<html><head><title>Open</title></head><body><p>Open page.</p></body></html>"),
             "/old.bak": lambda: self._send(200, "<p>backup</p>"),
             "/changing": lambda: self._changing(),
+            "/js": lambda: self._send(200, JS_PAGE),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
             "/llms-full.txt": lambda: self._send(200, "# Full\n\nAll the docs in one file.\n", "text/plain"),
             "/redirect-1": lambda: self._send(301, headers={"Location": "/redirect-2"}),

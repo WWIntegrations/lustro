@@ -338,16 +338,22 @@ class RobotsCache:
         self.max_bytes = max_bytes
         self.on_fetch = on_fetch  # callback(origin) before the robots.txt request
         self._cache: dict = {}
+        self._fetching: dict = {}
         self._lock = threading.Lock()
 
     def get(self, url: str) -> RobotsEntry:
         origin = origin_of(url)
         with self._lock:
             entry = self._cache.get(origin)
+            gate = self._fetching.setdefault(origin, threading.Lock())
         if entry is None:
-            entry = self._fetch(origin)
-            with self._lock:
-                self._cache[origin] = entry
+            with gate:                      # concurrent crawls: one robots.txt request per origin
+                with self._lock:
+                    entry = self._cache.get(origin)
+                if entry is None:
+                    entry = self._fetch(origin)
+                    with self._lock:
+                        self._cache[origin] = entry
         return entry
 
     def allowed(self, url: str):

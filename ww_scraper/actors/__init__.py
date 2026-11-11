@@ -21,6 +21,9 @@ ACTORS = {a.name: a for a in (
 )}
 
 
+BUILTIN = frozenset(ACTORS)
+
+
 def get_actor(name):
     """Look up by name; an platform-style 'user~name' id resolves to 'name'."""
     if not isinstance(name, str):
