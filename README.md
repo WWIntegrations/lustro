@@ -6,8 +6,15 @@
 </picture>
 <p align="center"><a href="docs/system-map.md">Full system map: 12 diagrams</a></p>
 
-Use it when you need to crawl sites, audit SEO and security headers, or collect licensed
-images on your own machine, without proxies, evasion or anything a site has not allowed.
+Use it when you need job postings from company job boards, businesses from OpenStreetMap,
+products and prices from shops, contact details, a crawl for RAG, or an SEO and security-header
+audit, on your own machine, without proxies, evasion or anything a site has not allowed.
+
+<p align="center"><img src="docs/console-demo.gif" width="100%" alt="The local console: the list of fifteen actors, the job postings input form generated from its schema, the runs list and a finished crawl with counters, items and export buttons"></p>
+
+Each release on GitHub carries a wheel and a source archive
+([v0.9.0](https://github.com/WWIntegrations/ww-scraper/releases/tag/v0.9.0)); download the
+wheel, check it, then install it with pip.
 
 ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (datasets, key-value stores, request queues, actors, runs and a
