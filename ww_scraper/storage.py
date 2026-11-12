@@ -1,5 +1,5 @@
-"""Local storage primitives shaped like a hosted scraping platform, kept on disk under ./storage/
-(override with WW_SCRAPER_STORAGE_DIR), similar to platform_storage:
+"""Local storage primitives, kept on disk under ./storage/
+(override with WW_SCRAPER_STORAGE_DIR):
 
     storage/datasets/<id>/items.jsonl          Dataset (append-only JSONL)
     storage/key_value_stores/<id>/<key>        KeyValueStore record
@@ -24,7 +24,7 @@ import threading
 import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape, quoteattr as _xml_attr
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _KEY_RE = re.compile(r"^[A-Za-z0-9!_'()-][A-Za-z0-9!_.'()-]{0,255}$")
@@ -361,8 +361,36 @@ class KeyValueStore:
 
 # --- RequestQueue ----------------------------------------------------------------------
 
+# Parameters that only say where a click came from: the page is the same without them.
+TRACKING_PARAMS = frozenset({
+    "gclid", "gclsrc", "dclid", "gbraid", "wbraid", "fbclid", "msclkid", "yclid", "ttclid",
+    "twclid", "li_fat_id", "igshid", "srsltid", "mc_cid", "mc_eid", "_hsenc", "_hsmi",
+    "mkt_tok", "_ga", "_gl", "pk_campaign", "pk_kwd", "pk_source", "pk_medium",
+})
+TRACKING_PREFIXES = ("utm_", "mtm_")
+
+
+def _param_name(part: str) -> str:
+    return unquote_plus(part.split("=", 1)[0]).lower()
+
+
+def is_tracking_param(name: str) -> bool:
+    name = name.lower()
+    return name in TRACKING_PARAMS or name.startswith(TRACKING_PREFIXES)
+
+
+def normalize_query(query: str) -> str:
+    """Tracking parameters dropped, the rest sorted by name. Values keep their original
+    encoding, and repeated names keep their relative order (a=1&a=2 is not a=2&a=1)."""
+    parts = [p for p in query.split("&") if p and not is_tracking_param(_param_name(p))]
+    return "&".join(sorted(parts, key=_param_name))
+
+
 def normalize_url(url: str) -> str:
-    """Default unique_key: lowercase scheme/host, no fragment, no default port, '/' path."""
+    """Default unique_key: lowercase scheme/host, no fragment, no default port, '/' path,
+    query parameters sorted and tracking parameters (utm_*, gclid, fbclid, ...) removed.
+    The trailing slash is kept: /a and /a/ can be different pages (the crawler learns
+    per site from rel=canonical when they are not, see ww_scraper/dedupe.py)."""
     p = urlsplit(url.strip())
     scheme = p.scheme.lower()
     host = (p.hostname or "").lower()
@@ -370,7 +398,7 @@ def normalize_url(url: str) -> str:
     netloc = host
     if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
         netloc = f"{host}:{port}"
-    return urlunsplit((scheme, netloc, p.path or "/", p.query, ""))
+    return urlunsplit((scheme, netloc, p.path or "/", normalize_query(p.query), ""))
 
 
 class _QueueBase:

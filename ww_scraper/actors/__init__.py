@@ -25,7 +25,7 @@ BUILTIN = frozenset(ACTORS)
 
 
 def get_actor(name):
-    """Look up by name; an platform-style 'user~name' id resolves to 'name'."""
+    """Look up by name; a 'user~name' id resolves to 'name'."""
     if not isinstance(name, str):
         return None
     return ACTORS.get(name.split("~")[-1].split("/")[-1])

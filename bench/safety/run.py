@@ -1,4 +1,4 @@
-"""Safety benchmark: ww-scraper against Crawlee (a widely used open-source crawler) on one local site.
+"""Safety benchmark: ww-scraper against Crawlee (open-source Node.js crawler) on one local site.
 
 Every number comes from the bench server's own request log or from the tool's output, so
 nothing depends on what either tool says about itself. Each tool runs in its default

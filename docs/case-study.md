@@ -25,7 +25,7 @@ hop and every connection a headless browser opens, passes the same gates:
 | Release | What it added | What it fixed or hardened |
 |---|---|---|
 | 0.1 | Licensed media collector (Openverse, Wikimedia, Pexels, The Met), live verification of every image | |
-| 0.2 | platform-style datasets, key-value stores, request queues, runs; seven actors; local API | API token required by default; DNS-rebinding-safe connections; linear sitemap reader |
+| 0.2 | Datasets, key-value stores, request queues, runs; seven actors; local API | API token required by default; DNS-rebinding-safe connections; linear sitemap reader |
 | 0.3 | RFC 9309 robots parser; robots-audit, structured-data, change-monitor, feed-reader | Robots matching is linear in URL length (no regular-expression backtracking) |
 | 0.4 | JavaScript rendering, concurrent crawling, one-file actors, runs list, HTML report | Browser traffic forced through a filtering proxy; output capped while reading |
 | 0.4 | change-monitor revalidates with ETag / Last-Modified | Validators checked before they are sent back to a server |
