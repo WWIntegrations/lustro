@@ -12,6 +12,7 @@ right-hand column lists only what such platforms publicly offer as their core se
 | Export formats | JSON, JSONL, CSV, XLSX, XML, HTML, with field selection; formulas neutralised in CSV and never evaluated in XLSX | JSON, JSONL, CSV, XLSX, XML, RSS, HTML |
 | Datasets, key-value stores, request queues, runs | yes, same layout and names | yes |
 | HTTP API | local only, loopback, token required | public, per account |
+| Web console | local: start runs from a schema form, live counters and log, items, downloads; strict CSP | hosted console |
 | Webhooks | HMAC-signed, allowlisted hosts only | yes |
 | Scheduling | prints a cron line or launchd plist for you to install | managed |
 | Your own scrapers | one Python file (`ww-scraper init`) | SDK plus deployment |

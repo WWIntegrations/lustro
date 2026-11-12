@@ -176,6 +176,31 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 | `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop) |
 | `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html&fields=a,b` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
+| `GET /v2/actor-runs/<id>/log` | the last 256 KB of the run log |
+| `GET /console` | the web console below |
+
+### Console
+
+`ww-scraper serve` also prints a console link (`http://127.0.0.1:8765/console#token=...`).
+In the browser you can start any actor from a form built from its input schema, watch a
+run's counters and log while it runs, abort it, page through its items and download them
+in any export format.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/console-run-dark.png">
+  <img alt="A finished website-content-crawler run in the console: counters for items, requests, duplicate pages skipped and pages refused by robots.txt, then the items table with download buttons" src="docs/console-run-light.png">
+</picture>
+
+- The token travels in the URL fragment, which browsers never send to a server, and is
+  kept in that tab's `sessionStorage` only. The page, its script and its stylesheet hold no
+  data and are served without the token; every value comes from the `/v2` routes, which
+  still need it.
+- Content-Security-Policy `default-src 'none'; script-src 'self'; connect-src 'self';
+  frame-ancestors 'none'`: no inline script, no third-party code, no framing.
+- Scraped values are written as text, never parsed as HTML; only plain `http(s)` values
+  become links. A headless-Chrome test loads a run whose item title is an
+  `<img onerror>` and a `<script>` and checks that both stay text.
+- No build step and no dependencies: three static files in `ww_scraper/console/`.
 
 Requests with a non-loopback `Host` header (DNS-rebinding guard) or a non-loopback
 `Origin` header (browser CSRF guard) get 403; POST bodies must be `application/json`

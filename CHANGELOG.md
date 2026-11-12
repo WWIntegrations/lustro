@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0 (2026-11-12)
+
+- Web console at `/console` on the local API (`ww-scraper serve` prints the link).
+  - Runs list with live status; a run page with counters, log, items table, abort and
+    downloads in every export format; a start form generated from each actor's input
+    schema (strings, numbers with limits, enums, booleans, string lists, JSON).
+  - Three static files, no dependencies and no build step, shipped as package data.
+  - Served with `script-src 'self'`, no inline script or style, `frame-ancestors 'none'`.
+    The page holds no data and needs no token; the `/v2` routes it calls still do. The
+    Host guard applies to the console too.
+  - The token is passed in the URL fragment and kept in `sessionStorage`; scraped values
+    are only ever written as text, and only `http(s)` values become links.
+- `GET /v2/actor-runs/<id>/log` returns the last 256 KB of a run log (`CSP: sandbox`).
+- A running run reports the items stored so far in `itemCount`.
+- `GET /` redirects to `/console`.
+- 9 new tests, one of them in headless Chrome with a hostile item (172 in total).
+
 ## 0.7.0 (2026-11-12)
 
 - Duplicate pages are skipped (`ww_scraper/dedupe.py`, on by default in `crawl()`).
