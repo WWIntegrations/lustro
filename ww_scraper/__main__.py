@@ -208,11 +208,15 @@ def main(argv=None) -> int:
             print(str(e), file=sys.stderr)
             return 2
         if not api.token:
-            print(f"ww-scraper API on {api.url} (WARNING: auth disabled with --no-auth)")
+            print(f"ww-scraper API on {api.url} (WARNING: auth disabled with --no-auth)\n"
+                  f"Console: {api.url}/console")
         elif api.token_generated:
-            print(f"ww-scraper API on {api.url}\nBearer token (shown once): {api.token}", flush=True)
+            # the token rides in the URL fragment, which browsers never send to a server
+            print(f"ww-scraper API on {api.url}\nBearer token (shown once): {api.token}\n"
+                  f"Console: {api.url}/console#token={api.token}", flush=True)
         else:
-            print(f"ww-scraper API on {api.url} (Bearer token required)")
+            print(f"ww-scraper API on {api.url} (Bearer token required)\n"
+                  f"Console: {api.url}/console (paste the token when asked)")
         try:
             api.serve_forever()
         except KeyboardInterrupt:
