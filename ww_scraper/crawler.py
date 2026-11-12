@@ -55,6 +55,7 @@ class FetchResult:
     blocked: bool = False      # refused by robots.txt or the SSRF guard (never fetched)
     elapsed_ms: int = 0
     rendered: bool = False     # body is the DOM after scripts ran (UTF-8)
+    duplicate: bool = False    # a redirect led to a page the crawl already has (not fetched)
 
     @property
     def ok(self) -> bool:
@@ -162,6 +163,7 @@ class PoliteCrawler:
         self._stats_lock = threading.Lock()
         # Adaptive pacing: host -> the interval it may never go below, and its success streak.
         self.adaptive = True
+        self.dedupe = True           # crawl(): skip URLs leading to a page already crawled
         self._base: dict = {}
         self._streak: dict = {}
         self._pace_lock = threading.Lock()
@@ -286,9 +288,10 @@ class PoliteCrawler:
 
     # -- fetch ------------------------------------------------------------------------
     def fetch(self, url: str, accept_types=HTML_TYPES, read_body: bool = True,
-              method: str = "GET", max_bytes: int = None) -> FetchResult:
+              method: str = "GET", max_bytes: int = None, skip_target=None) -> FetchResult:
         """Fetch url following redirects manually (each hop SSRF- and robots-checked).
-        accept_types=None accepts any content-type."""
+        accept_types=None accepts any content-type. skip_target(url) -> True stops before
+        following a redirect to url (the crawl already has that page)."""
         res = FetchResult(url=url)
         limit = self.max_bytes if max_bytes is None else max_bytes
         current = url
@@ -324,6 +327,11 @@ class PoliteCrawler:
                     nxt = urljoin(current, resp.headers["Location"])
                     res.redirects.append({"url": current, "status": resp.status_code,
                                           "location": nxt})
+                    if skip_target is not None and skip_target(nxt):
+                        res.final_url, res.duplicate = nxt, True
+                        res.error = "duplicate: redirects to a page already crawled"
+                        self._inc("duplicates")
+                        return res
                     current = nxt
                     continue
                 res.headers = _lower_headers(resp)
@@ -381,7 +389,7 @@ class PoliteCrawler:
     # -- crawl ------------------------------------------------------------------------
     def crawl(self, start_urls, on_page, *, max_pages: int = 50, max_depth: int = 2,
               same_origin: bool = True, include=None, exclude=None, queue=None,
-              enqueue_links: bool = True, concurrency: int = None):
+              enqueue_links: bool = True, concurrency: int = None, dedupe: bool = None):
         """Breadth-first crawl through a (durable) request queue.
 
         on_page(result, request, doc) is called for every processed request; doc is the
@@ -390,27 +398,50 @@ class PoliteCrawler:
         globs on the full URL), up to max_depth, and never past max_pages in total.
         concurrency > 1 fetches several pages at once; requests to one host stay spaced
         by the rate limiter, so it only helps when the crawl spans several hosts or the
-        interval is short."""
+        interval is short.
+        dedupe (default on, see ww_scraper/dedupe.py) skips URLs that lead to a page the
+        crawl already has: redirects to it, and variants its rel=canonical points away
+        from. Skipped and duplicate pages are counted in stats["duplicates"] and never
+        reach on_page."""
+        from .dedupe import DuplicateGuard
         from .extract import parse_html
 
         queue = queue or (self.ctx.queue if self.ctx else MemoryRequestQueue())
         workers = max(1, int(concurrency or self.default_concurrency))
+        guard = DuplicateGuard() if (self.dedupe if dedupe is None else dedupe) else None
         origins = {origin_of(u) for u in start_urls}
         for u in start_urls:
             queue.add(urldefrag(u)[0], depth=0)
         processed = queue.handled_count
 
         def work(req):
-            res = self.fetch(req["url"])
+            res = self.fetch(req["url"], skip_target=guard.seen if guard else None)
             doc = None
             if res.ok and res.is_html:
                 doc = parse_html(res.text(), res.final_url or req["url"])
                 self._inc("pages")
             return res, doc
 
+        def known(req) -> bool:
+            """Before fetching: the crawl already has the page this URL leads to."""
+            if guard is None or not guard.seen(req["url"]):
+                return False
+            queue.mark_handled(req)
+            self._inc("duplicates")
+            return True
+
         def finish(req, res, doc):
             if req.get("depth", 0) == 0 and res.final_url:
                 origins.add(origin_of(res.final_url))
+            if guard is not None:
+                if res.duplicate:
+                    queue.mark_handled(req)
+                    return
+                if res.ok and guard.register(req["url"], res.final_url,
+                                             doc.canonical if doc is not None else ""):
+                    self._inc("duplicates")
+                    queue.mark_handled(req)
+                    return
             on_page(res, req, doc)
             queue.mark_handled(req, error=res.error)
             if not enqueue_links or req.get("depth", 0) >= max_depth:
@@ -432,6 +463,8 @@ class PoliteCrawler:
                 req = queue.fetch_next()
                 if req is None:
                     break
+                if known(req):
+                    continue
                 try:
                     res, doc = work(req)
                 except Exception:
@@ -455,6 +488,8 @@ class PoliteCrawler:
                         req = queue.fetch_next()
                         if req is None:
                             break
+                        if known(req):
+                            continue
                         inflight[pool.submit(work, req)] = req
                     if not inflight:
                         break

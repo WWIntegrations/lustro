@@ -2,7 +2,7 @@
 
 A run moves READY -> RUNNING -> SUCCEEDED | FAILED | ABORTED. Its record lives in
 storage/runs/<id>.json; the run's default dataset, key-value store and request queue
-share the run id (as on hosted scraping platforms). The validated input is stored under the key INPUT.
+share the run id. The validated input is stored under the key INPUT.
 """
 from __future__ import annotations
 

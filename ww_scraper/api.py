@@ -1,4 +1,4 @@
-"""Local HTTP API with platform-shaped routes (stdlib http.server).
+"""Local HTTP API for runs and storages (stdlib http.server).
 
 Binds to a loopback IP only. A Bearer token is ALWAYS required unless auth is disabled
 explicitly (--no-auth): it comes from --token / WW_SCRAPER_API_TOKEN, or a random one is
