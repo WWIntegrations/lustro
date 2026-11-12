@@ -28,6 +28,7 @@ BLOCKS = {"p", "div", "section", "article", "main", "body", "header", "figure",
 FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/feed+json")
 MAX_JSONLD_BLOCKS = 20
 MAX_JSONLD_CHARS = 200_000
+MAX_CONTACT_TEXT = 5000
 
 
 class Node:
@@ -316,6 +317,8 @@ class Page:
     feeds: list = field(default_factory=list)
     hreflang: list = field(default_factory=list)
     links: list = field(default_factory=list)
+    contact_links: list = field(default_factory=list)   # mailto: and tel: hrefs, as written
+    contact_text: str = ""                              # text of <footer> and <address> elements
     images: list = field(default_factory=list)
     markdown: str = ""
     word_count: int = 0
@@ -372,7 +375,7 @@ def parse_html(html: str, base_url: str) -> Page:
                 page.description = _WS.sub(" ", content)
             elif name in ("robots", "ww-scraper"):
                 page.robots = ",".join(filter(None, [page.robots, content.lower()]))
-            elif prop.startswith("og:") and prop not in page.og:
+            elif prop.startswith(("og:", "product:")) and prop not in page.og:
                 page.og[prop] = content
             elif name.startswith("twitter:") and name not in page.twitter:
                 page.twitter[name] = content
@@ -402,13 +405,19 @@ def parse_html(html: str, base_url: str) -> Page:
                 page.jsonld_errors += 1
         elif t == "a" and a.get("href"):
             href = _abs(base, a["href"])
-            if urlparse(href).scheme in ("http", "https"):
+            scheme = urlparse(href).scheme.lower()
+            if scheme in ("http", "https"):
                 page.links.append({"url": href, "text": _WS.sub(" ", n.text()).strip()[:200],
                                    "rel": (a.get("rel") or "").lower()})
+            elif scheme in ("mailto", "tel") and len(page.contact_links) < 200:
+                page.contact_links.append(a["href"].strip()[:300])
         elif t == "img":
             src = _abs(base, a.get("src") or a.get("data-src"))
             if src:
                 page.images.append({"src": src, "alt": a.get("alt") if "alt" in a else None})
+        elif t in ("footer", "address") and len(page.contact_text) < MAX_CONTACT_TEXT:
+            # contact details usually live outside <main>, which the markdown keeps to
+            page.contact_text += _WS.sub(" ", n.text()).strip()[:MAX_CONTACT_TEXT] + "\n"
     page.site_name = page.og.get("og:site_name", "")
     page.markdown = to_markdown(root, base)
     page.word_count = len(re.findall(r"\w+", re.sub(r"\]\([^)]*\)", "]", page.markdown)))

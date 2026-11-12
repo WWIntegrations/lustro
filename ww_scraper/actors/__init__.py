@@ -3,10 +3,14 @@ fetch is robots.txt-checked, rate-limited per host and SSRF-guarded."""
 from __future__ import annotations
 
 from .change_monitor import ChangeMonitor
+from .contact_details import ContactDetails
 from .feed_reader import FeedReader
+from .job_postings import JobPostings
 from .link_checker import LinkChecker
 from .llms_txt import LlmsTxt
 from .media_collector import MediaCollector
+from .places import Places
+from .product_catalog import ProductCatalog
 from .robots_audit import RobotsAudit
 from .security_headers import SecurityHeaders
 from .seo_audit import SeoAudit
@@ -17,7 +21,7 @@ from .website_content_crawler import WebsiteContentCrawler
 ACTORS = {a.name: a for a in (
     WebsiteContentCrawler(), Sitemap(), SeoAudit(), SecurityHeaders(), LlmsTxt(),
     LinkChecker(), MediaCollector(), RobotsAudit(), StructuredData(), ChangeMonitor(),
-    FeedReader(),
+    FeedReader(), JobPostings(), Places(), ProductCatalog(), ContactDetails(),
 )}
 
 
