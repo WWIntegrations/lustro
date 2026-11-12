@@ -1,6 +1,6 @@
 """job-postings: open positions from the public job-board APIs that companies publish for
-exactly this purpose (Greenhouse, Lever, Ashby), plus schema.org JobPosting data on any
-careers page. One normalised record per posting, filters for keywords, location and remote,
+exactly this purpose (Greenhouse, Lever) and the list an Ashby job board publishes in its own
+page, plus schema.org JobPosting data on any careers page. One normalised record per posting, filters for keywords, location and remote,
 and an optional watch list that reports only postings new since the previous run.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import datetime
 import hashlib
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
-from ._api import first, get_json, html_to_text, valid_slug
+from ._api import embedded_json, fetch_body, first, get_json, html_to_text, valid_slug
 from .structured_data import flatten_jsonld
 
 SOURCES = ("greenhouse", "lever", "ashby")
@@ -64,18 +64,35 @@ def lever(item, company):
             "description": first(item.get("descriptionPlain"), html_to_text(item.get("description") or "")) or ""}
 
 
-def ashby(item, company):
-    comp = item.get("compensation") or {}
-    loc = item.get("location")
-    remote = item.get("isRemote")
-    return {"source": "ashby", "company": company, "id": str(item.get("id") or item.get("jobUrl")),
-            "title": item.get("title"), "url": item.get("jobUrl"), "applyUrl": item.get("applyUrl"),
-            "location": loc, "remote": remote if isinstance(remote, bool) else _remote(loc, item.get("workplaceType")),
-            "department": first(item.get("department"), item.get("team")),
-            "employmentType": item.get("employmentType"),
-            "salary": comp.get("compensationTierSummary") or comp.get("scrapeableCompensationSalarySummary"),
-            "postedAt": _iso(item.get("publishedAt")),
-            "description": first(item.get("descriptionPlain"), html_to_text(item.get("descriptionHtml") or "")) or ""}
+def ashby(item, company, teams=None, base="https://jobs.ashbyhq.com"):
+    """One posting from the list an Ashby board page embeds (window.__appData.jobBoard)."""
+    pid = str(item.get("id") or "")
+    url = f"{base}/{company}/{pid}" if pid else None
+    places = [item.get("locationName")] + [
+        (s.get("locationName") if isinstance(s, dict) else s) for s in item.get("secondaryLocations") or []]
+    loc = "; ".join(x for x in places if isinstance(x, str) and x) or None
+    workplace = item.get("workplaceType")
+    remote = True if isinstance(workplace, str) and workplace.lower() == "remote" else _remote(loc)
+    team = (teams or {}).get(item.get("teamId"))
+    return {"source": "ashby", "company": company, "id": pid,
+            "title": item.get("title"), "url": url, "applyUrl": f"{url}/application" if url else None,
+            "location": loc, "remote": remote, "workplaceType": workplace,
+            "department": team, "employmentType": item.get("employmentType"),
+            "salary": item.get("compensationTierSummary"),
+            "postedAt": _iso(item.get("publishedDate") or item.get("publishedAt")),
+            "description": ""}
+
+
+def ashby_board(html: str, company: str, base="https://jobs.ashbyhq.com"):
+    """Postings from an Ashby board page, or None when the page carries no board data."""
+    data = embedded_json(html, "window.__appData")
+    board = data.get("jobBoard") if isinstance(data, dict) else None
+    posts = board.get("jobPostings") if isinstance(board, dict) else None
+    if not isinstance(posts, list):
+        return None
+    teams = {tm.get("id"): (tm.get("externalName") or tm.get("name"))
+             for tm in board.get("teams") or [] if isinstance(tm, dict)}
+    return [ashby(i, company, teams, base) for i in posts if isinstance(i, dict) and i.get("isListed", True)]
 
 
 def jobposting(obj, page_url):
@@ -119,11 +136,13 @@ def jobposting(obj, page_url):
 class JobPostings(Actor):
     name = "job-postings"
     title = "Job Postings"
-    description = ("Open positions from public job-board APIs (Greenhouse, Lever, Ashby) and "
+    description = ("Open positions from public job boards (Greenhouse, Lever, Ashby) and "
                    "schema.org JobPosting data on careers pages, normalised, filtered, new-only on request.")
     GREENHOUSE = "https://boards-api.greenhouse.io/v1/boards/{}/jobs?content={}"
     LEVER = "https://api.lever.co/v0/postings/{}?mode=json"
-    ASHBY = "https://api.ashbyhq.com/posting-api/job-board/{}?includeCompensation=true"
+    # api.ashbyhq.com answers robots.txt with 401, which this crawler reads as a refusal; the
+    # board page on jobs.ashbyhq.com is allowed and embeds the full list of postings
+    ASHBY = "https://jobs.ashbyhq.com/{}"
     input_schema = {
         "type": "object",
         "required": ["boards"],
@@ -138,7 +157,8 @@ class JobPostings(Actor):
                           "description": "Keep postings whose location contains any of these"},
             "remoteOnly": {"type": "boolean", "default": False},
             "includeDescription": {"type": "boolean", "default": False,
-                                   "description": "Full description text (large boards answer slower)"},
+                                   "description": "Full description text from Greenhouse, Lever and careers "
+                                                  "pages (large boards answer slower; Ashby lists have none)"},
             "maxJobsPerBoard": {"type": "integer", "default": 1000, "minimum": 1, "maximum": 10000},
             "maxPagesPerSite": {"type": "integer", "default": 30, "minimum": 1, "maximum": 1000,
                                 "description": "For careers page URLs: pages read on that site"},
@@ -155,20 +175,29 @@ class JobPostings(Actor):
         source = source.lower()
         if source not in SOURCES or not valid_slug(slug):
             raise ValueError(f"{spec!r}: use greenhouse:<board>, lever:<company> or ashby:<organization>")
+        if source == "ashby":
+            url = self.ASHBY.format(slug)
+            body, err = fetch_body(crawler, url, ("text/html", "application/xhtml+xml"))
+            if err:
+                return url, None, err
+            jobs = ashby_board(body.decode("utf-8", "replace"), slug, self.ASHBY.rsplit("/", 1)[0])
+            if jobs is None:
+                return url, None, "no job board data on the page (wrong organization name?)"
+            return url, jobs, None
         if source == "greenhouse":
             # with content=true a large board is several MB; ask for it only when it is wanted
             url = self.GREENHOUSE.format(slug, "true" if descriptions else "false")
         else:
-            url = {"lever": self.LEVER, "ashby": self.ASHBY}[source].format(slug)
+            url = self.LEVER.format(slug)
         data, err = get_json(crawler, url)
         if err:
             return url, None, err
         if source == "lever":
             items = data if isinstance(data, list) else []
         else:
-            items = (data or {}).get("jobs") if isinstance(data, dict) else None
+            items = data.get("jobs") if isinstance(data, dict) else None
             items = items if isinstance(items, list) else []
-        norm = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}[source]
+        norm = greenhouse if source == "greenhouse" else lever
         return url, [norm(i, slug) for i in items if isinstance(i, dict)], None
 
     def _site(self, ctx, crawler, url, max_pages):

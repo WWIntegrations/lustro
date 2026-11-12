@@ -4,12 +4,13 @@
 
 - Four ready actors for the categories people most often buy ready-made scrapers for, each
   built on official endpoints or published structured data:
-  - `job-postings`: Greenhouse, Lever and Ashby public job-board APIs and schema.org
-    `JobPosting` on any careers page; one normalised record (title, company, location,
+  - `job-postings`: Greenhouse and Lever public job-board APIs, the posting list an Ashby
+    board page publishes in its own HTML (the Ashby API host answers robots.txt with 401,
+    which this crawler reads as a refusal) and schema.org `JobPosting` on any careers page; one normalised record (title, company, location,
     remote, salary, department, employment type, posted date, apply link); keyword,
     location and remote filters; `watchName` reports only postings new since the last run.
-  - `places`: OpenStreetMap through a public Overpass instance whose robots.txt allows API
-    use; 32 ready categories or raw tags, in a city, a radius or a box; ODbL attribution in
+  - `places`: OpenStreetMap through public Overpass instances whose robots.txt allows API
+    use, the next one tried when one does not answer; 32 ready categories or raw tags, in a city, a radius or a box; ODbL attribution in
     every record; tag values are validated before they reach the query.
   - `product-catalog`: schema.org Product, ProductGroup variants, AggregateOffer and Open
     Graph product tags; prices parsed in both `49,99` and `1,299.00` styles; duplicates
@@ -19,14 +20,16 @@
     found only in running text masked unless `redactPii` is off.
 - Page parsing keeps `mailto:` and `tel:` links (`Page.contact_links`), the text of
   `<footer>` and `<address>` (`Page.contact_text`) and `product:*` Open Graph properties.
-- JSON endpoints are read through the same crawler (robots.txt, pacing, SSRF guard) and
-  retried twice on DNS or connection errors; one failing board no longer ends a run.
+- JSON endpoints are read through the same crawler (robots.txt, pacing, SSRF guard); DNS
+  failures are tried again, while timeouts and resets are left to the crawler's own retries
+  so attempts do not multiply. One failing board no longer ends a run.
 - The crawler now bounds the whole response body, not only each read: a server that
   keeps trickling a few kilobytes at a time can no longer hold a fetch for minutes
   (`body_timeout`, default three times the read timeout and at least 60 s). A missed body
   deadline is reported, not retried.
-- 16 new tests against a local server imitating the APIs and three kinds of websites,
-  plus a server that drips its body (188 in total).
+- 19 new tests against a local server imitating the APIs, an Ashby board page and three
+  kinds of websites, plus a server that drips its body (191 in total). Checked live on
+  2026-11-12 against Greenhouse, Lever and Ashby boards (2,000 postings).
 
 ## 0.8.0 (2026-11-12)
 

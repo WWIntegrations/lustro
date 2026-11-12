@@ -15,6 +15,11 @@ from ..actor import MIN_INTERVAL, REDACT, Actor
 from ._api import get_json
 
 ATTRIBUTION = "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)"
+# public instances whose robots.txt allows API use (checked 2026-11-12); the main instance
+# disallows /api/. Tried in order when one does not answer.
+ENDPOINTS = ("https://overpass.kumi.systems/api/interpreter",
+             "https://overpass.private.coffee/api/interpreter")
+SERVER_TIMEOUT = 60          # seconds the query lets the Overpass server work
 CATEGORIES = {
     "restaurant": ["amenity=restaurant"], "cafe": ["amenity=cafe"], "bar": ["amenity=bar", "amenity=pub"],
     "fast_food": ["amenity=fast_food"], "bakery": ["shop=bakery"], "supermarket": ["shop=supermarket"],
@@ -66,7 +71,7 @@ def build_query(tags: list, inp: dict, limit: int) -> str:
     else:
         raise ValueError("give an area: city, lat+lon (with radiusMeters) or bbox")
     body = "".join(f"  nwr{f}{scope};\n" for f in filters)
-    return f"[out:json][timeout:90];\n{head}(\n{body});\nout tags center qt {int(limit)};"
+    return f"[out:json][timeout:{SERVER_TIMEOUT}];\n{head}(\n{body});\nout tags center qt {int(limit)};"
 
 
 def normalise(el: dict) -> dict:
@@ -90,6 +95,7 @@ def normalise(el: dict) -> dict:
 
 
 class Places(Actor):
+    ENDPOINTS = ENDPOINTS
     name = "places"
     title = "Places (OpenStreetMap)"
     description = ("Businesses and points of interest by category and area from OpenStreetMap: name, "
@@ -110,7 +116,7 @@ class Places(Actor):
                      "description": "[south, west, north, east]"},
             "onlyWithWebsite": {"type": "boolean", "default": False},
             "maxResults": {"type": "integer", "default": 1000, "minimum": 1, "maximum": 20000},
-            "endpoint": {"type": "string", "default": "https://overpass.kumi.systems/api/interpreter",
+            "endpoint": {"type": "string", "default": "",
                          "description": "An Overpass API instance that allows automated use"},
             "minIntervalSecs": MIN_INTERVAL,
             "redactPii": REDACT,
@@ -123,14 +129,25 @@ class Places(Actor):
         if not tags:
             raise ValueError("choose a category or give at least one tag")
         query = build_query(tags, inp, inp["maxResults"])
-        endpoint = inp["endpoint"]
-        if not endpoint.startswith("https://") and not ctx.allow_loopback:
+        own = inp["endpoint"].strip()
+        if own and not own.startswith("https://") and not ctx.allow_loopback:
             raise ValueError("endpoint must be https")
         ctx.log.info(f"places: Overpass query\n{query}")
-        data, err = get_json(ctx.crawler(), f"{endpoint}?data={quote(query)}")
-        if err:
+        # Overpass sends nothing until the result is ready: the read timeout must outlast the
+        # time the query allows the server, or the client gives up on every busy minute.
+        # One retry per instance, then the next instance: a stalled server costs minutes, not an hour.
+        crawler = ctx.crawler(timeout=SERVER_TIMEOUT + 15, max_retries=1)
+        data, errors = None, []
+        for endpoint in ([own] if own else list(self.ENDPOINTS)):
+            ctx.check_abort()
+            data, err = get_json(crawler, f"{endpoint}?data={quote(query)}")
+            if not err:
+                break
             ctx.record_failure(endpoint, err)
-            raise RuntimeError(f"Overpass API: {err}")
+            errors.append(f"{endpoint.split('/')[2]}: {err}")
+            data = None
+        if data is None:
+            raise RuntimeError("Overpass API: " + "; ".join(errors))
         remark = (data or {}).get("remark")
         if remark and "error" in remark.lower():
             raise RuntimeError(f"Overpass API: {remark[:300]}")

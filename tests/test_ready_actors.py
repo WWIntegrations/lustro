@@ -25,11 +25,15 @@ LEVER = [{"id": "lv-1", "text": "AI Integration Engineer", "hostedUrl": "https:/
           "categories": {"location": "Gdańsk", "team": "Agents", "commitment": "Full-time"},
           "workplaceType": "hybrid", "descriptionPlain": "Agents and APIs.",
           "salaryRange": {"min": 15000, "max": 22000, "currency": "PLN", "interval": "per-month"}}]
-ASHBY = {"jobs": [{"id": "as-1", "title": "Python Developer", "jobUrl": "https://ashby.example/as-1",
-                   "applyUrl": "https://ashby.example/as-1/apply", "location": "Berlin", "isRemote": True,
-                   "department": "Engineering", "employmentType": "FullTime", "publishedAt": "2026-11-11T08:00:00Z",
-                   "descriptionPlain": "Remote friendly.",
-                   "compensation": {"compensationTierSummary": "€70K – €90K"}}]}
+ASHBY_DATA = {"organization": {"name": "Acme"}, "jobBoard": {
+    "teams": [{"id": "t-1", "name": "Engineering", "externalName": None}],
+    "jobPostings": [
+        {"id": "as-1", "title": "Python Developer", "teamId": "t-1", "locationName": "Berlin",
+         "workplaceType": "Remote", "employmentType": "FullTime", "secondaryLocations": [{"locationName": "Lisbon"}],
+         "compensationTierSummary": "€70K - €90K"},
+        {"id": "as-2", "title": "Hidden Role", "isListed": False, "locationName": "Berlin"}]}}
+ASHBY_PAGE = ("<html><head><title>Jobs</title></head><body><div id=root></div><script>"
+              "window.__appData = " + json.dumps(ASHBY_DATA) + ";</script></body></html>")
 CAREERS = """<html><head><title>Careers</title><script type="application/ld+json">
 {"@context":"https://schema.org","@type":"JobPosting","title":"Data Engineer","datePosted":"2026-11-09",
  "hiringOrganization":{"@type":"Organization","name":"Firm SA"},"jobLocationType":"TELECOMMUTE",
@@ -108,8 +112,10 @@ class _Server:
                     body, ctype = json.dumps(GH), "application/json"
                 elif u.path == "/lever/v0/postings/acme":
                     body, ctype = json.dumps(LEVER), "application/json"
-                elif u.path == "/ashby/posting-api/job-board/acme":
-                    body, ctype = json.dumps(ASHBY), "application/json"
+                elif u.path == "/ashby/acme":
+                    body = ASHBY_PAGE
+                elif u.path == "/ashby/empty":
+                    body = "<html><body>No board here</body></html>"
                 elif u.path == "/careers":
                     body = CAREERS
                 elif u.path == "/api/interpreter":
@@ -142,7 +148,7 @@ def srv():
 def apis(srv, monkeypatch):
     monkeypatch.setattr(JobPostings, "GREENHOUSE", srv.base + "/gh/v1/boards/{}/jobs?content={}")
     monkeypatch.setattr(JobPostings, "LEVER", srv.base + "/lever/v0/postings/{}?mode=json")
-    monkeypatch.setattr(JobPostings, "ASHBY", srv.base + "/ashby/posting-api/job-board/{}")
+    monkeypatch.setattr(JobPostings, "ASHBY", srv.base + "/ashby/{}")
     return srv
 
 
@@ -165,19 +171,24 @@ def test_jobs_from_three_ats_apis_and_a_careers_page(storage, apis):
     lv = by["AI Integration Engineer"]
     assert lv["salary"] == "15000-22000 PLN per-month" and lv["postedAt"].startswith("2025-11-07")
     assert lv["employmentType"] == "Full-time" and lv["applyUrl"].endswith("/apply")
-    assert by["Python Developer"]["salary"] == "€70K – €90K" and by["Python Developer"]["remote"] is True
+    asb = by["Python Developer"]
+    assert asb["salary"] == "€70K - €90K" and asb["remote"] is True and asb["department"] == "Engineering"
+    assert asb["location"] == "Berlin; Lisbon" and asb["url"] == apis.base + "/ashby/acme/as-1"
+    assert asb["applyUrl"].endswith("/as-1/application") and "Hidden Role" not in by
     de = by["Data Engineer"]
     assert (de["company"], de["remote"], de["salary"], de["id"]) == ("Firm SA", True, "12000-18000 PLN MONTH", "DE-7")
     assert de["location"] == "Kraków, PL"
     assert out["fetched"] == 5 and out["failedBoards"] == 0
-    assert [i["postedAt"] for i in items] == sorted((i["postedAt"] for i in items), reverse=True)
+    dated = [i["postedAt"] or "" for i in items]
+    assert dated == sorted(dated, reverse=True)
 
 
 def test_job_filters(storage, apis):
     _, items, _ = _run(storage, "job-postings", {"boards": ["greenhouse:acme", "lever:acme", "ashby:acme"],
                                                  "keywords": ["python"], "remoteOnly": True,
                                                  "includeDescription": False})
-    assert [i["title"] for i in items] == ["Python Developer", "Senior Python Engineer"]
+    # newest first; the Ashby list carries no dates, so its posting comes last
+    assert [i["title"] for i in items] == ["Senior Python Engineer", "Python Developer"]
     assert all("description" not in i for i in items)
     _, items, _ = _run(storage, "job-postings", {"boards": ["lever:acme", "greenhouse:acme"], "locations": ["gdańsk"]})
     assert [i["title"] for i in items] == ["AI Integration Engineer"]
@@ -194,6 +205,11 @@ def test_job_board_specs_are_validated(storage, apis):
     for bad in ("workday:acme", "greenhouse:../../etc", "lever:a/b", "greenhouse:"):
         rec = run_actor("job-postings", {"boards": [bad], "minIntervalSecs": 0}, storage, allow_loopback=True)
         assert rec["status"] == "FAILED" and "use greenhouse" in rec["statusMessage"], bad
+
+
+def test_ashby_page_without_board_data_is_a_recorded_failure(storage, apis):
+    _, items, out = _run(storage, "job-postings", {"boards": ["ashby:empty", "ashby:acme"]})
+    assert [i["title"] for i in items] == ["Python Developer"] and out["failedBoards"] == 1
 
 
 def test_failed_board_is_recorded_not_fatal(storage, apis):
@@ -296,3 +312,33 @@ def test_ready_actors_validate_input(storage):
             from ww_scraper.actor import prepare_run
             prepare_run(actor, inp, storage)
     assert Places.name == "places"
+
+
+def test_places_falls_back_to_the_next_instance(storage, apis, monkeypatch):
+    from ww_scraper.actors.places import Places
+    monkeypatch.setattr(Places, "ENDPOINTS", (apis.base + "/down/api/interpreter", apis.base + "/api/interpreter"))
+    rec, items, out = _run(storage, "places", {"category": "cafe", "city": "Gdańsk"})
+    assert items and out["endpoint"] == apis.base + "/api/interpreter"
+
+
+def test_network_errors_are_not_retried_twice_over():
+    from types import SimpleNamespace
+    from ww_scraper.actors._api import fetch_body
+    calls = []
+
+    class Stalled:
+        def fetch(self, url, **kw):
+            calls.append(url)
+            return SimpleNamespace(ok=False, blocked=False, status=0, error="network: ReadTimeout", body=b"")
+
+    body, err = fetch_body(Stalled(), "https://x.example/api", pause=0)
+    assert body is None and err == "network: ReadTimeout" and len(calls) == 1
+
+    class NoDns(Stalled):
+        def fetch(self, url, **kw):
+            calls.append(url)
+            return SimpleNamespace(ok=False, blocked=False, status=0, error="dns: unresolvable host", body=b"")
+
+    calls.clear()
+    fetch_body(NoDns(), "https://x.example/api", retries=2, pause=0)
+    assert len(calls) == 3

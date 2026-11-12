@@ -1,4 +1,4 @@
-"""Helpers for actors that read official JSON endpoints instead of HTML pages.
+"""Helpers for actors that read official JSON endpoints and data pages publish about themselves.
 
 Every request still goes through PoliteCrawler.fetch: robots.txt of the API host, per-host
 spacing, the SSRF guard on every hop and a byte limit all apply exactly as for pages.
@@ -21,15 +21,19 @@ def valid_slug(value: str) -> bool:
     return isinstance(value, str) and bool(_SLUG.fullmatch(value)) and ".." not in value
 
 
-TRANSIENT = ("dns:", "timed out", "timeout", "connection", "reset", "refused")
+# The crawler already retries network errors and HTTP 429/5xx with backoff; retrying those
+# here too multiplied the attempts (12 x a 75 s timeout on a stalled server). Only failures the
+# crawler does not retry (name resolution, an exception out of fetch) are tried again here.
+TRANSIENT = ("dns:",)
 
 
-def get_json(crawler, url: str, max_bytes: int = MAX_JSON_BYTES, retries: int = 2, pause: float = 3.0):
-    """Return (data, None) or (None, reason). Network failures (DNS, timeouts, resets) are
-    tried again ``retries`` times; HTTP 429/503 pacing is already handled by the crawler."""
+def fetch_body(crawler, url: str, accept_types=JSON_TYPES, max_bytes: int = MAX_JSON_BYTES,
+               retries: int = 2, pause: float = 3.0):
+    """Return (body bytes, None) or (None, reason). DNS failures and exceptions are tried again
+    ``retries`` times; timeouts, resets and HTTP 429/5xx are retried by the crawler itself."""
     for attempt in range(retries + 1):
         try:
-            res = crawler.fetch(url, accept_types=JSON_TYPES, max_bytes=max_bytes)
+            res = crawler.fetch(url, accept_types=accept_types, max_bytes=max_bytes)
         except Exception as e:  # noqa: BLE001 - a dropped connection must not end the whole run
             res = None
             reason = f"{type(e).__name__}: {e}"[:300]
@@ -48,10 +52,34 @@ def get_json(crawler, url: str, max_bytes: int = MAX_JSON_BYTES, retries: int = 
         return None, res.error or "blocked"
     if not res.ok:
         return None, f"HTTP {res.status}"
+    return res.body, None
+
+
+def get_json(crawler, url: str, max_bytes: int = MAX_JSON_BYTES, retries: int = 2, pause: float = 3.0):
+    """Return (data, None) or (None, reason) for a JSON endpoint."""
+    body, err = fetch_body(crawler, url, JSON_TYPES, max_bytes, retries, pause)
+    if err:
+        return None, err
     try:
-        return json.loads(res.body.decode("utf-8", "replace")), None
+        return json.loads(body.decode("utf-8", "replace")), None
     except (ValueError, RecursionError):
         return None, "response is not valid JSON"
+
+
+def embedded_json(html: str, marker: str):
+    """The JSON value a page assigns in a script, e.g. ``window.__appData = {...}``; None if absent
+    or malformed. Reads one value with the JSON decoder, never evaluates script."""
+    i = html.find(marker) if isinstance(html, str) else -1
+    if i < 0:
+        return None
+    i += len(marker)
+    while i < len(html) and html[i] in " \t\r\n=":
+        i += 1
+    try:
+        value, _ = json.JSONDecoder().raw_decode(html, i)
+    except (ValueError, RecursionError):
+        return None
+    return value
 
 
 class _Text(HTMLParser):
