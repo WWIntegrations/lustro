@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.0 (2026-11-12)
+
+- Four ready actors for the categories people most often buy ready-made scrapers for, each
+  built on official endpoints or published structured data:
+  - `job-postings`: Greenhouse, Lever and Ashby public job-board APIs and schema.org
+    `JobPosting` on any careers page; one normalised record (title, company, location,
+    remote, salary, department, employment type, posted date, apply link); keyword,
+    location and remote filters; `watchName` reports only postings new since the last run.
+  - `places`: OpenStreetMap through a public Overpass instance whose robots.txt allows API
+    use; 32 ready categories or raw tags, in a city, a radius or a box; ODbL attribution in
+    every record; tag values are validated before they reach the query.
+  - `product-catalog`: schema.org Product, ProductGroup variants, AggregateOffer and Open
+    Graph product tags; prices parsed in both `49,99` and `1,299.00` styles; duplicates
+    removed by GTIN or SKU; merchant-feed problems flagged per record.
+  - `contact-details`: e-mails, phones, social profiles, address and VAT id from the home,
+    contact, about and imprint pages; role addresses kept, personal addresses and phones
+    found only in running text masked unless `redactPii` is off.
+- Page parsing keeps `mailto:` and `tel:` links (`Page.contact_links`), the text of
+  `<footer>` and `<address>` (`Page.contact_text`) and `product:*` Open Graph properties.
+- JSON endpoints are read through the same crawler (robots.txt, pacing, SSRF guard) and
+  retried twice on DNS or connection errors; one failing board no longer ends a run.
+- The crawler now bounds the whole response body, not only each read: a server that
+  keeps trickling a few kilobytes at a time can no longer hold a fetch for minutes
+  (`body_timeout`, default three times the read timeout and at least 60 s). A missed body
+  deadline is reported, not retried.
+- 16 new tests against a local server imitating the APIs and three kinds of websites,
+  plus a server that drips its body (188 in total).
+
 ## 0.8.0 (2026-11-12)
 
 - Web console at `/console` on the local API (`ww-scraper serve` prints the link).

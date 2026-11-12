@@ -142,7 +142,8 @@ class PoliteCrawler:
     def __init__(self, ctx=None, *, session=None, min_interval: float = 1.0,
                  allow_loopback: bool = None, max_retries: int = 3, backoff_base: float = 1.0,
                  max_backoff: float = 30.0, max_bytes: int = 5 * 1024 * 1024,
-                 timeout: float = 20, max_redirects: int = 10, log=None):
+                 timeout: float = 20, max_redirects: int = 10, log=None,
+                 body_timeout: float = None):
         self.ctx = ctx
         self.session = session or (ctx.session if ctx else PoliteSession(MIN_INTERVAL_FLOOR))
         self.allow_loopback = (ctx.allow_loopback if ctx and allow_loopback is None
@@ -154,6 +155,7 @@ class PoliteCrawler:
         self.max_backoff = max_backoff
         self.max_bytes = max_bytes
         self.timeout = timeout
+        self.body_timeout = float(body_timeout) if body_timeout else max(60.0, 3 * float(timeout))
         self.max_redirects = max_redirects
         self.log = log or (ctx.log if ctx else None)
         self.stats = ctx.stats if ctx else {"requests": 0, "retries": 0, "robotsBlocked": 0,
@@ -350,10 +352,16 @@ class PoliteCrawler:
                         res.error = f"too-large: {clen} bytes"
                         return res
                     buf = bytearray()
-                    for chunk in resp.iter_content(64 * 1024):
+                    # `timeout` bounds each socket read; a server that keeps sending a little at
+                    # a time never trips it, so the whole body also has a deadline
+                    body_deadline = time.monotonic() + self.body_timeout
+                    for chunk in resp.iter_content(16 * 1024):
                         buf += chunk
                         if len(buf) > limit:
                             res.error = f"too-large: > {limit} bytes"
+                            return res
+                        if time.monotonic() > body_deadline:
+                            res.error = f"timeout: body not complete after {self.body_timeout:.0f} s"
                             return res
                     res.body = bytes(buf)
                     self._inc("bytes", len(buf))
