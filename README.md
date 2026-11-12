@@ -11,7 +11,7 @@ images on your own machine, without proxies, evasion or anything a site has not 
 
 ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (datasets, key-value stores, request queues, actors, runs and a
-small HTTP API), plus eleven ready actors, including the original licensed media collector.
+small HTTP API), plus fifteen ready actors, including job postings, places, product catalogs, contact details and the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
 robots.txt always, a per-host rate limit, an honest User-Agent with a contact, and
 personal data redacted by default.
@@ -58,7 +58,7 @@ copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's 
 ## What you can do with it
 
 ```bash
-ww-scraper actors                                     # the eleven built-in actors
+ww-scraper actors                                     # the fifteen built-in actors
 ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.com/"], "render": true, "maxConcurrency": 4}'
 ww-scraper runs                                       # what ran, with status and item counts
@@ -132,6 +132,10 @@ metadata with the standard library only (`html.parser`).
 | `structured-data`         | per page: JSON-LD objects (lifted out of `@graph`), Open Graph and Twitter card tags, invalid JSON-LD blocks |
 | `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; pages seen before are asked for with ETag / Last-Modified, so an unchanged page that answers 304 is not downloaded again; the snapshot keeps hashes, titles, word counts, validators and link URLs, not page text |
 | `feed-reader`             | RSS / Atom feeds a page advertises (or feed URLs given directly) and their entries |
+| `job-postings`            | open positions from the public Greenhouse and Lever job-board APIs, Ashby board pages and schema.org `JobPosting` data on any careers page: title, company, location, remote, salary, department, posted date, apply link; keyword, location and remote filters; `watchName` returns only postings new since the last run |
+| `places`                  | businesses by category (32 ready ones) or raw OSM tags, in a city, a radius or a box, from OpenStreetMap via public Overpass instances that allow API use (with fallback): address, coordinates, website, phone, opening hours, with the ODbL attribution in every record |
+| `product-catalog`         | products from any shop's schema.org data (Product, ProductGroup variants, AggregateOffer, Open Graph fallback): price, currency, availability, GTIN, SKU, brand, rating; duplicates removed by GTIN or SKU; records a merchant feed would reject are flagged |
+| `contact-details`         | the e-mails, phones, social profiles, address and VAT id a company publishes on its home, contact, about and imprint pages; role addresses (info@, biuro@) kept, personal ones masked unless `redactPii` is off |
 
 ```bash
 ww-scraper actors                                   # list actors and input fields
@@ -142,6 +146,29 @@ ww-scraper export <dataset-id> --format csv
 ww-scraper export <dataset-id> --format xlsx --fields url,title --out items.xlsx
 ww-scraper run robots-audit --input '{"startUrls": ["https://example.com/"], "testPaths": ["/", "/admin"]}'
 ww-scraper run change-monitor --input '{"startUrls": ["https://example.com/"], "monitorName": "example"}'
+```
+
+### Ready scrapers, without the grey zone
+
+The four newest actors cover the categories people most often buy ready-made scrapers for,
+built so they never need to break a rule to work:
+
+- **Jobs** read the job-board APIs companies publish for embedding their openings, not
+  aggregator sites that forbid scraping. One normalised format across three ATS vendors and
+  any careers page with Google for Jobs markup.
+- **Places** read OpenStreetMap, open data you may republish, instead of a map service whose
+  terms forbid extraction. The main Overpass server disallows `/api/` in robots.txt, so the
+  default endpoint is a public instance that does not; any instance can be configured.
+- **Products** read the structured data shops publish for search engines, so there are no
+  CSS selectors to maintain and a redesign does not break the scraper.
+- **Contacts** apply a GDPR rule per field instead of all or nothing: an address that names a
+  function is business contact data; an address that names a person is masked by default.
+
+```bash
+ww-scraper run job-postings --input '{"boards": ["greenhouse:<board>", "lever:<company>", "ashby:<org>"], "keywords": ["python"], "remoteOnly": true, "watchName": "my-search"}'
+ww-scraper run places --input '{"category": "dentist", "city": "Gdańsk"}'
+ww-scraper run product-catalog --input '{"startUrls": ["https://shop.example/"], "maxPages": 500}'
+ww-scraper run contact-details --input '{"startUrls": ["https://company.example/"]}'
 ```
 
 Try it offline against the bundled test site (the `--allow-loopback` switch is for

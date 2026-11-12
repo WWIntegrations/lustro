@@ -49,10 +49,11 @@ def test_bool_is_not_integer():
     assert errors == ["maxPages: expected integer"]
 
 
-def test_registry_has_eleven_actors_with_schemas():
+def test_registry_has_fifteen_actors_with_schemas():
     assert set(ACTORS) == {"website-content-crawler", "sitemap", "seo-audit",
                            "security-headers", "llms-txt", "link-checker", "media-collector",
-                           "robots-audit", "structured-data", "change-monitor", "feed-reader"}
+                           "robots-audit", "structured-data", "change-monitor", "feed-reader",
+                           "job-postings", "places", "product-catalog", "contact-details"}
     for a in ACTORS.values():
         d = a.describe()
         assert d["name"] and d["inputSchema"]["properties"]

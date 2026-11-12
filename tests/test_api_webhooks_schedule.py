@@ -35,7 +35,7 @@ def test_api_auth_and_host_guard(api):
     r = requests.get(api.url + "/v2/acts", headers=dict(_h(), Host="evil.example"), timeout=5)
     assert r.status_code == 403                       # DNS-rebinding guard
     r = requests.get(api.url + "/v2/acts", headers=_h(), timeout=5)
-    assert r.status_code == 200 and r.json()["data"]["total"] == 11
+    assert r.status_code == 200 and r.json()["data"]["total"] == 15
 
 
 def test_api_run_flow(api, site):
