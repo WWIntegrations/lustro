@@ -13,6 +13,13 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
     POST /v2/actor-runs/<id>/abort
     GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html[&offset=&limit=&fields=a,b]
     GET  /v2/key-value-stores/<id>/records/<key>
+    GET  /v2/actor-runs/<id>/log                        last 256 KB of the run log
+    GET  /console                                       web console (static files only)
+
+The console page and its script and stylesheet carry no data, so they are served without
+the token (the Host check still applies); everything they show comes from the /v2 routes
+above, which need the token as before. They are sent with a strict Content-Security-Policy
+(scripts and connections to this origin only, no framing).
 """
 from __future__ import annotations
 
@@ -24,6 +31,7 @@ import re
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .actor import InputError, execute_run, prepare_run
@@ -33,6 +41,16 @@ from .storage import Storage, StorageError, valid_id, valid_key
 
 MAX_BODY = 1024 * 1024
 MAX_WAIT = 300
+MAX_LOG = 256 * 1024
+
+CONSOLE_DIR = Path(__file__).with_name("console")
+# exact names only: nothing under /console is resolved against the filesystem by the request
+CONSOLE_FILES = {"/console": ("index.html", "text/html; charset=utf-8"),
+                 "/console/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                 "/console/app.css": ("app.css", "text/css; charset=utf-8")}
+CONSOLE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+               "img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+LIVE_STATUSES = ("READY", "RUNNING")
 
 
 class _Server(ThreadingHTTPServer):
@@ -118,11 +136,13 @@ class _Handler(BaseHTTPRequestHandler):
     def _error(self, code, etype, msg):
         self._json(code, {"error": {"type": etype, "message": msg}})
 
-    def _guard(self) -> bool:
+    def _guard(self, auth: bool = True) -> bool:
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if not is_loopback_host(host):
             self._error(403, "forbidden-host", "Host header must be a loopback address")
             return False
+        if not auth:
+            return True
         origin = self.headers.get("Origin")
         if origin is not None:
             try:
@@ -146,10 +166,22 @@ class _Handler(BaseHTTPRequestHandler):
         return u.path.rstrip("/") or "/", {k: v[-1] for k, v in parse_qs(u.query).items()}
 
     # -- GET --------------------------------------------------------------------------
+    def _console(self, path) -> None:
+        name, ctype = CONSOLE_FILES[path]
+        body = (CONSOLE_DIR / name).read_bytes()
+        self._send(200, body, ctype, {"Content-Security-Policy": CONSOLE_CSP,
+                                      "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"})
+
     def do_GET(self):
+        path, q = self._route()
+        if path in CONSOLE_FILES or path == "/":
+            if not self._guard(auth=False):
+                return
+            if path == "/":
+                return self._send(302, b"", "text/plain", {"Location": "/console"})
+            return self._console(path)
         if not self._guard():
             return
-        path, q = self._route()
         st = self.ctx.storage
         if path == "/v2/acts":
             items = [a.describe() for a in ACTORS.values()]
@@ -161,7 +193,27 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/v2/actor-runs/([^/]+)", path)
         if m:
             rec = st.load_run(m.group(1))
-            return self._json(200, {"data": rec}) if rec else self._error(404, "not-found", "run not found")
+            if not rec:
+                return self._error(404, "not-found", "run not found")
+            if rec.get("status") in LIVE_STATUSES:
+                # the record is written at start and at the end; count what is stored so far
+                rec["itemCount"] = st.dataset(rec.get("defaultDatasetId") or rec["id"]).count()
+            return self._json(200, {"data": rec})
+        m = re.fullmatch(r"/v2/actor-runs/([^/]+)/log", path)
+        if m:
+            rid = m.group(1)
+            if not valid_id(rid) or st.load_run(rid) is None:
+                return self._error(404, "not-found", "run not found")
+            p = st.log_path(rid)
+            data = b""
+            if p.is_file():
+                with open(p, "rb") as fh:
+                    size = fh.seek(0, os.SEEK_END)
+                    fh.seek(max(0, size - MAX_LOG))
+                    data = fh.read()
+                if size > MAX_LOG:
+                    data = data[data.find(b"\n") + 1:]   # drop the cut first line
+            return self._send(200, data, "text/plain; charset=utf-8", {"Content-Security-Policy": "sandbox"})
         m = re.fullmatch(r"/v2/datasets/([^/]+)/items", path)
         if m:
             did = m.group(1)

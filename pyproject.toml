@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ww-scraper"
-version = "0.7.0"
+version = "0.8.0"
 description = "Compliant, open-source local scraping platform primitives (datasets, key-value stores, request queues, actors) plus a licensed media collector. robots.txt always, no evasion."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,3 +21,6 @@ Homepage = "https://github.com/WWIntegrations/ww-scraper"
 
 [tool.setuptools.packages.find]
 include = ["ww_scraper*"]
+
+[tool.setuptools.package-data]
+ww_scraper = ["console/*"]
