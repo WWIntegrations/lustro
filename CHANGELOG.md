@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0 (2026-11-12)
+
+- Duplicate pages are skipped (`ww_scraper/dedupe.py`, on by default in `crawl()`).
+  - Queue keys sort query parameters and drop tracking parameters: `utm_*`, `mtm_*`,
+    `gclid`, `fbclid`, `msclkid` and 20 other click ids. Values keep their encoding;
+    repeated names keep their order.
+  - Every fetched page registers its request URL, final URL and `rel=canonical`. A URL that
+    leads to a registered page is not fetched, and a redirect to one stops after the
+    first hop.
+  - From canonicals the crawler learns, per host, which parameters and whether the
+    trailing slash do not change the page: after 3 agreeing pages, never after one
+    disagreeing page. A canonical is trusted only when it keeps the host and the path (up
+    to the slash), so a site that points every page at its home page loses nothing.
+  - Duplicates are counted in `stats["duplicates"]` and do not reach `on_page`.
+    `crawl(..., dedupe=False)` or `crawler.dedupe = False` restores 0.6 behaviour.
+  - A durable queue written by 0.6 resumes, but URLs whose key changed (parameter order,
+    tracking parameters) can be fetched once more.
+- `bench/crawl`: ww-scraper and Crawlee 3.18.2 on a generated 500-page site with the usual
+  duplicate URLs, same budget (10 in flight). ww-scraper: 510 page downloads, 0 duplicate
+  items, 1.6 s, 35 MB. Crawlee: 2,500 downloads, 2,000 duplicate items, 8.3 s, 389 MB.
+  Method and limits in `bench/crawl/README.md`.
+- Tests: 149 to 163.
+
 ## 0.6.0 (2026-11-12)
 
 - Dataset export in six formats: `json`, `jsonl`, `csv`, `xlsx`, `xml` and `html`, from the
@@ -61,7 +84,7 @@
 
 ## 0.2.0
 
-Local, compliant mirror of Apify-style platform primitives, plus seven actors.
+Local, compliant scraping platform primitives (datasets, key-value stores, request queues, runs), plus seven actors.
 
 - Storage under `./storage/` (`WW_SCRAPER_STORAGE_DIR`): `Dataset` (JSONL, export
   json/jsonl/csv with formula-injection guard), `KeyValueStore` (files + content-type),

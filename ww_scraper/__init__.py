@@ -1,4 +1,4 @@
-"""ww-scraper - compliant, open-source collector and local mirror of Apify-style primitives.
+"""ww-scraper - compliant, open-source collector and local scraping platform primitives.
 
 Public API:
   search(query, sources=..., limit=..., verify=...) -> list[Resource]   (v0.1 media)

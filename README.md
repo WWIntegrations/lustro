@@ -10,7 +10,7 @@ Use it when you need to crawl sites, audit SEO and security headers, or collect 
 images on your own machine, without proxies, evasion or anything a site has not allowed.
 
 ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
-platforms (Apify-style datasets, key-value stores, request queues, actors, runs and a
+platforms (datasets, key-value stores, request queues, actors, runs and a
 small HTTP API), plus eleven ready actors, including the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
 robots.txt always, a per-host rate limit, an honest User-Agent with a contact, and
@@ -81,15 +81,23 @@ How this compares with a hosted platform, including what it does not do:
 [docs/comparison.md](docs/comparison.md). The decisions behind it and the defects found on the
 way: [docs/case-study.md](docs/case-study.md).
 
-Measured against Crawlee, the open-source crawler behind Apify, on one hostile local site
+Measured against Crawlee, a widely used open-source crawler library, on one hostile local site
 ([bench/safety](bench/safety/README.md)): in default configuration Crawlee fetched a page
 robots.txt disallows, tried to connect to the cloud metadata address after a redirect,
 retried a 429 within 10 ms of `Retry-After: 4`, and exported a scraped formula live into
 CSV. ww-scraper did none of the four.
 
+On a generated 500-page site where every page is also linked as a print view, with tracking
+parameters, with a trailing slash and through an old redirecting path
+([bench/crawl](bench/crawl/README.md)), with the same budget for both (10 requests in flight):
+ww-scraper downloaded 510 pages and handed over 0 duplicates in 1.6 s and 35 MB; Crawlee
+downloaded 2,500 pages, handed over 2,000 duplicates, followed links from a `nofollow` page,
+and took 8.3 s and 389 MB. ww-scraper learns from each site's `rel=canonical` which URL
+variants are the same page.
+
 ## Platform primitives
 
-Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out like `apify_storage`:
+Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 
 | Primitive      | What it is                                                              |
 |----------------|-------------------------------------------------------------------------|
