@@ -1,7 +1,7 @@
 # ww-scraper and hosted scraping platforms
 
-This page states plainly what ww-scraper gives you compared with a hosted platform such as
-Apify, and what it does not. It makes no claim about another product's internals; the
+This page states plainly what ww-scraper gives you compared with a hosted scraping
+platform, and what it does not. It makes no claim about another product's internals; the
 right-hand column lists only what such platforms publicly offer as their core service.
 
 | | ww-scraper | Hosted platform |
@@ -28,11 +28,17 @@ right-hand column lists only what such platforms publicly offer as their core se
 
 ## Measured, not claimed
 
-[`bench/safety`](../bench/safety/README.md) runs ww-scraper and Crawlee (the open-source
-library behind Apify) against one hostile local site. In default configuration Crawlee
+[`bench/safety`](../bench/safety/README.md) runs ww-scraper and Crawlee (a widely used
+open-source crawler library) against one hostile local site. In default configuration Crawlee
 fetched a page robots.txt disallows, tried to connect to the cloud metadata address after a
 redirect, retried a 429 within 10 ms of a `Retry-After: 4`, and exported a scraped formula
 into CSV as a live formula. ww-scraper did none of the four.
+
+[`bench/crawl`](../bench/crawl/README.md) crawls a generated 500-page site where every page
+is also linked as a print view, with tracking parameters, with a trailing slash and through a
+redirecting old path. With the same budget for both (10 requests in flight), ww-scraper
+downloaded 510 pages and passed on 0 duplicates in 1.6 s and 35 MB; Crawlee downloaded 2,500,
+passed on 2,000 duplicates, followed links from a `nofollow` page, and took 8.3 s and 389 MB.
 
 ## When ww-scraper is the better tool
 

@@ -1,6 +1,6 @@
 # Safety benchmark: ww-scraper and Crawlee on one hostile site
 
-[Crawlee](https://crawlee.dev) is the open-source crawler library behind Apify. This
+[Crawlee](https://crawlee.dev) is a widely used open-source crawler library for Node.js. This
 benchmark points it and ww-scraper at the same small local site and records what each one
 does in four situations where a crawler can cause harm. Each result comes from the bench
 server's own request log or from the tool's output, so neither tool grades itself.
@@ -32,7 +32,7 @@ Python 3.12, macOS. Raw output: [`results.json`](results.json).
 
 ## What it does not say
 
-Crawlee and Apify do much that ww-scraper does not: many machines, browser pools, proxy
+Crawlee and the hosted platforms built on it do much that ww-scraper does not: many machines, browser pools, proxy
 rotation and thousands of ready-made scrapers. Most of the behaviours above can be
 configured in Crawlee by someone who knows to do it. The benchmark measures defaults,
 because defaults are what runs when nobody checks.
