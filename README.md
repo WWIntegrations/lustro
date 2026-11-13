@@ -231,7 +231,7 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 |---|---|
 | `GET /v2/acts` | list actors with input schemas |
 | `POST /v2/acts/<name>/runs?waitForFinish=60&timeout=300` | start a run, body = input JSON |
-| `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop) |
+| `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop, `POST .../resurrect` to run a finished one again) |
 | `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html\|rss&fields=a,b&omit=c&flatten=1&unwind=d&desc=1&clean=1` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
 | `GET /v2/actor-runs/<id>/log` | the last 256 KB of the run log |
@@ -266,7 +266,9 @@ Requests with a non-loopback `Host` header (DNS-rebinding guard) or a non-loopba
 
 ### Webhooks
 
-After a run, ww-scraper can POST `ACTOR.RUN.SUCCEEDED|FAILED|ABORTED|TIMED_OUT` events (CLI
+After a run, ww-scraper can POST `ACTOR.RUN.SUCCEEDED|FAILED|ABORTED|TIMED_OUT` events
+(and, for webhooks that list them in `eventTypes`, `ACTOR.RUN.CREATED|RESURRECTED` when a run
+starts) (CLI
 `--webhook URL`, or the API `webhooks` query parameter as base64 JSON
 `[{"requestUrl": ..., "eventTypes": [...]}]`). Only hosts in `WW_SCRAPER_WEBHOOK_HOSTS`
 (comma separated) are contacted, over HTTPS, without following redirects, and only

@@ -286,7 +286,14 @@ async function runView(id) {
       await api("/v2/actor-runs/" + encodeURIComponent(id) + "/abort", { method: "POST",
         headers: { "Content-Type": "application/json" }, body: "{}" });
       route();
-    } }) : null;
+    } }) : el("button", { class: "btn", type: "button", id: "resurrect", text: "Run again",
+    title: "Run this finished run again with the same input and storages",
+    onclick: async (ev) => {
+      ev.target.disabled = true;
+      await api("/v2/actor-runs/" + encodeURIComponent(id) + "/resurrect", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: "{}" });
+      route();
+    } });
   const list = Array.isArray(items) ? items : [];
   let inputPretty = input;
   try { inputPretty = JSON.stringify(JSON.parse(input), null, 2); } catch (e) { /* keep text */ }

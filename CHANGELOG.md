@@ -121,6 +121,12 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - Request queue: `add(url, forefront=True)` puts a request at the head of the queue, and
   `add_many(requests, forefront=False)` adds a batch in one journal write; the journal
   replays both in the same order after a crash.
+- `POST /v2/actor-runs/<id>/resurrect[?timeout=]` runs a finished run (SUCCEEDED, FAILED,
+  ABORTED or TIMED-OUT) again with its stored input and its storages; 409 for a run that is
+  still going. The console run page has a "Run again" button for it.
+- Webhook events `ACTOR.RUN.CREATED` and `ACTOR.RUN.RESURRECTED`, sent when a run starts or
+  is resumed, to webhooks that list them in `eventTypes`; without `eventTypes` a webhook
+  still gets only the four finish events.
 
 ## 0.9.0 (2026-11-12)
 

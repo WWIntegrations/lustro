@@ -11,6 +11,8 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
     GET  /v2/actor-runs
     GET  /v2/actor-runs/<id>
     POST /v2/actor-runs/<id>/abort
+    POST /v2/actor-runs/<id>/resurrect[?timeout=<s>&waitForFinish=<s>]   run a finished run again
+                                                        with its storages and stored input
     GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html|rss[&offset=&limit=&fields=a,b
          &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1]
     GET  /v2/key-value-stores/<id>/records/<key>
@@ -35,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .actor import InputError, execute_run, prepare_run, request_abort
+from .actor import TERMINAL, InputError, execute_run, prepare_run, request_abort
 from .actors import ACTORS, get_actor
 from .compliance import is_loopback_host
 from .storage import Storage, StorageError, valid_id, valid_key
@@ -268,6 +270,9 @@ class _Handler(BaseHTTPRequestHandler):
                 entry[1].set()
             entry[0].join(10)
             return self._json(200, {"data": self.ctx.storage.load_run(m.group(1))})
+        m = re.fullmatch(r"/v2/actor-runs/([^/]+)/resurrect", path)
+        if m:
+            return self._resurrect(m.group(1), q)
         m = re.fullmatch(r"/v2/acts/([^/]+)/runs", path)
         if not m:
             return self._error(404, "not-found", "unknown route")
@@ -285,14 +290,10 @@ class _Handler(BaseHTTPRequestHandler):
             data = json.loads(raw) if raw.strip() else {}
         except ValueError:
             return self._error(400, "invalid-input", "body is not valid JSON")
-        webhooks = None
-        if q.get("webhooks"):
-            try:
-                webhooks = json.loads(base64.b64decode(q["webhooks"]))
-                if not isinstance(webhooks, list):
-                    raise ValueError
-            except (ValueError, TypeError):
-                return self._error(400, "invalid-request", "webhooks must be base64 JSON list")
+        try:
+            webhooks = self._webhooks(q)
+        except (ValueError, TypeError):
+            return self._error(400, "invalid-request", "webhooks must be base64 JSON list")
         options = {}
         if q.get("timeout"):
             try:
@@ -312,6 +313,9 @@ class _Handler(BaseHTTPRequestHandler):
         except InputError as e:
             return self._json(400, {"error": {"type": "invalid-input", "message": str(e),
                                               "errors": e.errors}})
+        return self._started(rec, q)
+
+    def _started(self, rec, q):
         try:
             wait = min(float(q.get("waitForFinish", 0)), MAX_WAIT)
         except ValueError:
@@ -319,3 +323,38 @@ class _Handler(BaseHTTPRequestHandler):
         if wait > 0:
             self.ctx.runs[rec["id"]][0].join(wait)
         return self._json(201, {"data": self.ctx.storage.load_run(rec["id"])})
+
+    @staticmethod
+    def _webhooks(q):
+        if not q.get("webhooks"):
+            return None
+        hooks = json.loads(base64.b64decode(q["webhooks"]))
+        if not isinstance(hooks, list):
+            raise ValueError
+        return hooks
+
+    def _resurrect(self, run_id, q):
+        st = self.ctx.storage
+        prev = st.load_run(run_id) if valid_id(run_id) else None
+        if prev is None:
+            return self._error(404, "not-found", "run not found")
+        if prev.get("status") not in TERMINAL:
+            return self._error(409, "run-not-finished",
+                               f"run is {prev.get('status')}; only a finished run can be resurrected")
+        if get_actor(prev.get("actId")) is None:
+            return self._error(404, "not-found", f"actor {prev.get('actId')!r} is not loaded")
+        options = {}
+        if q.get("timeout"):
+            try:
+                options["timeoutSecs"] = float(q["timeout"])
+            except ValueError:
+                return self._error(400, "invalid-request", "timeout must be a number of seconds")
+        try:
+            hooks = self._webhooks(q)
+        except (ValueError, TypeError):
+            return self._error(400, "invalid-request", "webhooks must be base64 JSON list")
+        try:
+            rec = self.ctx.start_run(prev["actId"], None, run_id=run_id, webhooks=hooks, options=options)
+        except InputError as e:
+            return self._json(400, {"error": {"type": "invalid-input", "message": str(e), "errors": e.errors}})
+        return self._started(rec, q)
