@@ -294,12 +294,52 @@ class RunAborted(Exception):
     pass
 
 
-def mask_secrets(text, secrets) -> str:
-    """text with every secret value (and its URL-encoded forms) replaced by [secret]."""
+# query parameters whose values are credentials; their values are masked in any URL that
+# is stored or logged, whether or not the value is a declared secret input
+_CREDENTIAL_PARAMS = re.compile(
+    r"(?i)^(?:api[_-]?key|apikey|key|token|access[_-]?token|refresh[_-]?token|id[_-]?token|auth|"
+    r"authorization|bearer|secret|client[_-]?secret|password|passwd|pwd|pass|sig|signature|"
+    r"x-amz-signature|x-amz-credential|x-amz-security-token|session|sessionid|code)$")
+_URL_IN_TEXT = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s\"'<>`]+")
+_PCT = re.compile(r"%[0-9A-Fa-f]{2}")
+
+
+def scrub_url(url: str) -> str:
+    """url without userinfo (user:password@) and with credential-like query values masked."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    try:
+        p = urlsplit(url)
+        netloc = p.netloc.rsplit("@", 1)[1] if "@" in p.netloc else p.netloc
+        query = p.query
+        if query:
+            pairs = parse_qsl(query, keep_blank_values=True)
+            if any(_CREDENTIAL_PARAMS.match(k) for k, _ in pairs):
+                query = urlencode([(k, "[secret]" if _CREDENTIAL_PARAMS.match(k) else v) for k, v in pairs],
+                                  safe="[]")
+        return urlunsplit((p.scheme, netloc, p.path, query, p.fragment))
+    except ValueError:
+        return url
+
+
+def _secret_forms(secret: str) -> set:
+    """The ways a secret value shows up in text: as is, URL-encoded (any safe set, upper or
+    lower hex) and JSON-escaped."""
     from urllib.parse import quote, quote_plus
+    forms = {secret, quote(secret), quote(secret, safe=""), quote_plus(secret),
+             quote_plus(secret, safe=""), json.dumps(secret)[1:-1],
+             json.dumps(secret, ensure_ascii=False)[1:-1]}
+    forms |= {_PCT.sub(lambda m: m.group(0).lower(), f) for f in list(forms)}
+    return {f for f in forms if f}
+
+
+def mask_secrets(text, secrets) -> str:
+    """text with URLs scrubbed (scrub_url) and every secret value, in each of its encoded
+    forms, replaced by [secret]."""
     text = str(text if text is not None else "")
+    if "://" in text:
+        text = _URL_IN_TEXT.sub(lambda m: scrub_url(m.group(0)), text)
     for secret in secrets or ():
-        for form in {secret, quote(secret, safe=""), quote_plus(secret)}:
+        for form in sorted(_secret_forms(secret), key=len, reverse=True):
             text = text.replace(form, "[secret]")
     return text
 

@@ -64,6 +64,13 @@ Defects found while measuring 150 local business sites; seven of them changed re
   `stats.calledBytes`). Before, a step under a capped run had no cap of its own.
 - MCP: `statusMessage` and check names in `call_actor`, `get_run` and `list_runs` come back
   as `{"untrusted": "..."}`, capped at 2000 characters, since they can quote a web page.
+- With `--allow-host`, rendered pages are held to the allowlist as well: the browser's
+  filtering proxy refuses every other host, subresources included. Before, only the
+  crawler's own requests were checked and the browser could load any public host.
+- Stored and logged URLs lose their userinfo (`user:password@`), and the values of
+  credential-like query parameters (`key`, `token`, `access_token`, `signature`, `password`,
+  `code` and similar) become `[secret]`. Secret input values are masked in every
+  URL-encoded form (any safe set, upper or lower hex) and JSON-escaped, not only as is.
 - Secret input values are masked as `[secret]` (also URL-encoded) in the run record's
   `statusMessage`, in `FAILED_REQUESTS` and in `ctx.set_status_message()`, not only in the
   log, so the API, MCP and webhook payloads no longer carry them. Actors can use

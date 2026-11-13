@@ -494,7 +494,8 @@ class PoliteCrawler:
                                   wait_for=b.get("waitForSelector") or None, actions=b.get("actions") or None,
                                   screenshot=b.get("screenshot") or None, image_format=shot_fmt,
                                   pdf=bool(b.get("pdf")),
-                                  accept_language=self.accept_language)
+                                  accept_language=self.accept_language,
+                                  allow_hosts=getattr(self.ctx, "allow_hosts", None))
                 html = out.html
                 for note in out.notes:
                     if self.log:
@@ -513,7 +514,8 @@ class PoliteCrawler:
             else:
                 html = render_dom(res.final_url, allow_loopback=self.allow_loopback,
                                   wait_ms=self.render_wait_ms, max_bytes=self.max_bytes,
-                                  accept_language=self.accept_language)
+                                  accept_language=self.accept_language,
+                                  allow_hosts=getattr(self.ctx, "allow_hosts", None))
         except RenderError as e:
             self._inc("renderFailed")
             if self.log:
