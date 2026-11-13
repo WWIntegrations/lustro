@@ -34,8 +34,15 @@ def _connect_validated(host: str, port: int, allow_loopback: bool):
     raise OSError(f"cannot connect: {last}")
 
 
-def _relay(a: socket.socket, b: socket.socket, budget: list) -> None:
-    socks = [a, b]
+# hop-by-hop headers dropped from a plain-HTTP request; "Connection: close" is sent instead
+_HOP_HEADERS = {b"connection", b"proxy-connection", b"keep-alive", b"te", b"upgrade"}
+
+
+def _relay(a: socket.socket, b: socket.socket, budget: list, a_limit: int = None) -> None:
+    """Copy bytes both ways until one side closes. a_limit: at most this many more bytes
+    go from a (the browser) to b; after that a is no longer read, so a second request on a
+    kept-alive browser connection never reaches the first request's host."""
+    socks = [b] if a_limit == 0 else [a, b]
     while True:
         ready, _, bad = select.select(socks, [], socks, IDLE_SECS)
         if bad or not ready:
@@ -47,6 +54,12 @@ def _relay(a: socket.socket, b: socket.socket, budget: list) -> None:
                 return
             if not data:
                 return
+            if s is a and a_limit is not None:
+                data, a_limit = data[:a_limit], a_limit - min(a_limit, len(data))
+                if a_limit == 0:
+                    socks = [b]             # the one request is sent: read only the answer
+                if not data:
+                    continue
             budget[0] -= len(data)
             if budget[0] < 0:
                 return                      # byte cap for the whole render reached
@@ -54,6 +67,31 @@ def _relay(a: socket.socket, b: socket.socket, budget: list) -> None:
                 (b if s is a else a).sendall(data)
             except OSError:
                 return
+
+
+def _one_request(head: bytes, method: str, path: str):
+    """(bytes to send upstream, body bytes still to come from the browser) for a plain-HTTP
+    proxy request, rewritten to origin form with "Connection: close"; or (None, reason).
+    One request per connection: the upstream connection is pinned to the first host, so
+    nothing after this request's body may be relayed on it."""
+    headers, _, body = head.partition(b"\r\n\r\n")
+    lines = headers.split(b"\r\n")[1:]
+    kept, length = [], 0
+    for line in lines:
+        name = line.split(b":", 1)[0].strip().lower()
+        if name in _HOP_HEADERS:
+            continue
+        if name == b"transfer-encoding":
+            return None, "chunked request bodies are not supported"
+        if name == b"content-length":
+            value = line.split(b":", 1)[1].strip() if b":" in line else b""
+            if not value.isdigit():
+                return None, "bad Content-Length"
+            length = int(value)
+        kept.append(line)
+    kept.append(b"Connection: close")
+    out = f"{method} {path} HTTP/1.1".encode("latin-1") + b"\r\n" + b"\r\n".join(kept) + b"\r\n\r\n"
+    return out + body[:length], max(0, length - len(body))
 
 
 class _Handler(socketserver.BaseRequestHandler):
@@ -86,8 +124,9 @@ class _Handler(socketserver.BaseRequestHandler):
                 return self._deny(conn, proxy, target[:80], "only http and CONNECT")
             host, port = u.hostname, str(u.port or 80)
             path = (u.path or "/") + (("?" + u.query) if u.query else "")
-            first, _, tail = head.partition(b"\r\n")
-            rest = f"{method} {path} HTTP/1.1".encode("latin-1") + b"\r\n" + tail
+            rest, more = _one_request(head, method, path)
+            if rest is None:
+                return self._deny(conn, proxy, host, more, code=400)
         host = host.strip("[]")
         try:
             port_n = int(port)
@@ -106,9 +145,10 @@ class _Handler(socketserver.BaseRequestHandler):
         try:
             if method == "CONNECT":
                 conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                _relay(conn, upstream, proxy.budget)
             else:
                 upstream.sendall(rest)
-            _relay(conn, upstream, proxy.budget)
+                _relay(conn, upstream, proxy.budget, a_limit=more)
         except OSError:
             pass
         finally:

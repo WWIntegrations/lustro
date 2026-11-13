@@ -30,7 +30,9 @@ from xml.sax.saxutils import escape as _xml_escape, quoteattr as _xml_attr
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-_KEY_RE = re.compile(r"^[A-Za-z0-9!_'()-][A-Za-z0-9!_.'()-]{0,255}$")
+# at most 200 characters: the key is a file name, and with its extension (".json") and the
+# temporary suffix used while writing it must stay under the usual 255-byte limit
+_KEY_RE = re.compile(r"^[A-Za-z0-9!_'()-][A-Za-z0-9!_.'()-]{0,199}$")
 _RUN_ID_RE = re.compile(r"^\d{14}-[0-9a-f]{8}$")
 _DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)([smhdw])$")
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 7 * 86400}
@@ -1008,7 +1010,9 @@ class Storage:
     def delete_run(self, run_id: str) -> bool:
         """Delete a finished run with its record, log, report and unnamed storages."""
         import shutil
-        if self.load_run(run_id) is None:
+        # only ids made by new_id() are runs: a named storage ("leads") must never be
+        # removed through this path, even if a run record of that name were planted
+        if not is_run_id(run_id) or self.load_run(run_id) is None:
             return False
         if self.run_is_live(run_id):
             raise StorageError(f"run {run_id} is still going; abort it first")
