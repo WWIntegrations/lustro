@@ -127,9 +127,11 @@ def _flags(profile: str, proxy_port: int, accept_language: str = "") -> list:
 
 def render_dom(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000,
                timeout: float = 45, max_bytes: int = 5 * 1024 * 1024,
-               accept_language: str = "") -> str:
+               accept_language: str = "", allow_hosts=None) -> str:
     """HTML of the page after its scripts ran. Raises RenderError when no browser is
-    installed, the browser fails, times out or returns more than max_bytes."""
+    installed, the browser fails, times out or returns more than max_bytes. allow_hosts:
+    the browser may load only from these hosts and their subdomains (the proxy refuses
+    every other request, subresources included)."""
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise RenderError("only http(s) URLs can be rendered")
@@ -139,7 +141,7 @@ def render_dom(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000,
     extra = shlex.split(os.environ.get("WW_SCRAPER_CHROME_ARGS", ""))
     port = parts.port or (443 if parts.scheme == "https" else 80)
     with tempfile.TemporaryDirectory(prefix="ww-scraper-chrome-") as profile, \
-            FilteringProxy(allow_loopback, loopback_port=port) as proxy:
+            FilteringProxy(allow_loopback, loopback_port=port, allow_hosts=allow_hosts) as proxy:
         cmd = [browser, *_flags(profile, proxy.port, accept_language), f"--virtual-time-budget={max(0, int(wait_ms))}",
                *extra, "--dump-dom", url]
         out, code, err_tail = _run_capped(cmd, timeout, max_bytes)
@@ -227,7 +229,7 @@ def _b64(data: str) -> bytes:
 def render_page(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000, timeout: float = 60,
                 max_bytes: int = 5 * 1024 * 1024, wait_for: str = None, actions=None,
                 screenshot: str = None, image_format: str = "png", pdf: bool = False,
-                accept_language: str = "") -> RenderResult:
+                accept_language: str = "", allow_hosts=None) -> RenderResult:
     """Render a page over the DevTools pipe: load it, wait wait_ms for its scripts, wait for
     `wait_for` (a CSS selector), run `actions`, then read the DOM and optionally capture a
     screenshot ("viewport" or "fullPage") and a PDF. Same proxy, flags and limits as
@@ -250,7 +252,7 @@ def render_page(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000, 
     out = RenderResult()
     deadline = time.monotonic() + timeout
     with tempfile.TemporaryDirectory(prefix="ww-scraper-chrome-") as profile, \
-            FilteringProxy(allow_loopback, loopback_port=port) as proxy:
+            FilteringProxy(allow_loopback, loopback_port=port, allow_hosts=allow_hosts) as proxy:
         argv = [browser_path, *_flags(profile, proxy.port, accept_language), f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}",
                 *extra, "about:blank"]
         try:

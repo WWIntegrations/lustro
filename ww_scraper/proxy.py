@@ -17,7 +17,7 @@ import socketserver
 import threading
 from urllib.parse import urlsplit
 
-from .compliance import SSRFBlocked, resolve_validated
+from .compliance import SSRFBlocked, host_allowed, resolve_validated
 
 MAX_HEADER = 64 * 1024
 IDLE_SECS = 30
@@ -128,6 +128,8 @@ class _Handler(socketserver.BaseRequestHandler):
             if rest is None:
                 return self._deny(conn, proxy, host, more, code=400)
         host = host.strip("[]")
+        if proxy.allow_hosts and not host_allowed(host.lower(), proxy.allow_hosts):
+            return self._deny(conn, proxy, host, "host not allowed")
         try:
             port_n = int(port)
         except ValueError:
@@ -174,8 +176,10 @@ class FilteringProxy:
     """with FilteringProxy(...) as p: browser uses http://127.0.0.1:<p.port>."""
 
     def __init__(self, allow_loopback: bool = False, loopback_port: int = 0,
-                 max_bytes: int = 50 * 1024 * 1024):
+                 max_bytes: int = 50 * 1024 * 1024, allow_hosts=None):
         self.allow_loopback = bool(allow_loopback)
+        # a run's host allowlist (MCP --allow-host): every other host is refused
+        self.allow_hosts = (frozenset(h.lower().strip(".") for h in allow_hosts) if allow_hosts else None)
         self.loopback_port = loopback_port      # the one loopback port tests may reach
         self.budget = [max_bytes]
         self.allowed: list = []

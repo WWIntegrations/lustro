@@ -26,8 +26,9 @@ A value may be given as a call_actor argument (maxStoredItems for maxItems, sinc
 there is the number of items returned) or as a run option at the top of `input`; a value
 above the ceiling is refused, not lowered. `--allow-host HOST` (repeatable) limits MCP runs
 to those hosts and their subdomains: start URLs on other hosts are refused before the run,
-and the crawler refuses every other host on every request and redirect while it runs
-(actors that only call fixed official APIs, such as media-collector, do not crawl hosts
+the crawler refuses every other host on every request and redirect while it runs, and a
+rendered page's browser loads nothing from other hosts either (the filtering proxy refuses
+them, so list a CDN the pages need) (actors that only call fixed official APIs, such as media-collector, do not crawl hosts
 from their input). Text in run records that can come from a website or a failing request
 (statusMessage, check names and values) is returned as {"untrusted": "..."}, at most
 MAX_UNTRUSTED characters.

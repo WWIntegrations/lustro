@@ -372,7 +372,9 @@ be given as a `call_actor` argument (`timeoutSecs`, `maxStoredItems`, `maxReques
 
 `--allow-host HOST` (repeatable) limits MCP runs to those hosts and their subdomains: start
 URLs elsewhere are refused before the run starts, and the crawler refuses any other host on
-every request and redirect (`stats.hostBlocked`). Actors that only call fixed official APIs
+every request and redirect (`stats.hostBlocked`). A rendered page loads only from those
+hosts too: the browser's filtering proxy refuses the rest, scripts and images included, so
+add the CDN hosts a site needs. Actors that only call fixed official APIs
 (media-collector) do not take hosts from their input and are not limited by it.
 
 ```json

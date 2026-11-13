@@ -177,3 +177,36 @@ def test_called_runs_inherit_what_is_left_of_the_budget(storage, monkeypatch):
     assert Spender.seen[0]["maxBytes"] == 10_000 and Spender.seen[2]["maxBytes"] == 10_000 - 200
     assert rec["stats"]["calledRequests"] == 12 and rec["stats"]["calledBytes"] == 300
     assert rec["status"] == "SUCCEEDED" and rec["statusMessage"] == "stopped at maxRequests=10"
+
+
+def test_secret_forms_and_credential_urls_are_masked():
+    from ww_scraper.actor import mask_secrets, scrub_url
+    s = 'sk-live/0123+4567&89ab"cd'
+    forms = [s, quote(s), quote(s, safe=""), quote(s, safe="").lower(), quote(s).lower(),
+             json.dumps(s)[1:-1], json.dumps(s, ensure_ascii=False)[1:-1]]
+    for form in forms:
+        out = mask_secrets(f"before {form} after", [s])
+        assert out == "before [secret] after", (form, out)
+    assert scrub_url("https://user:pw@api.example.org/v1?api_key=abc&page=2#top") == \
+        "https://api.example.org/v1?api_key=[secret]&page=2#top"
+    assert scrub_url("https://example.org/list?page=2&sort=a") == "https://example.org/list?page=2&sort=a"
+    text = mask_secrets("GET https://a:b@x.example.org/p?Token=t0k&x=1 failed: 401", [])
+    assert "a:b@" not in text and "t0k" not in text and "x=1" in text
+
+
+def test_failures_keep_no_userinfo_or_credential_query(storage, monkeypatch):
+    class Leaky(Actor):
+        name = "test-url-leak"
+        input_schema = {"type": "object", "properties": {}}
+
+        def run(self, ctx):
+            ctx.record_failure("https://bob:hunter2@api.example.org/v1?access_token=abc123&page=3",
+                               "HTTP 403 at https://api.example.org/v1?signature=deadbeef")
+            raise RuntimeError("redirected to https://api.example.org/cb?code=oauth-code-1")
+
+    monkeypatch.setitem(ACTORS, Leaky.name, Leaky())
+    rec = run_actor(Leaky.name, {}, storage)
+    blob = json.dumps(storage.kv(rec["id"]).get("FAILED_REQUESTS")) + rec["statusMessage"]
+    for leaked in ("hunter2", "abc123", "deadbeef", "oauth-code-1"):
+        assert leaked not in blob and leaked not in storage.log_path(rec["id"]).read_text()
+    assert "page=3" in blob

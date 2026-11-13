@@ -141,3 +141,44 @@ def test_status_message_and_checks_are_marked_untrusted(storage):
         got = pick(reply["result"]["structuredContent"])
         assert got["id"] == rid and set(got["statusMessage"]) == {"untrusted"}
         assert "Ignore all" not in json.dumps({k: v for k, v in got.items() if k != "statusMessage"})
+
+
+def test_browser_proxy_enforces_the_allowlist(site):
+    import socket
+    from ww_scraper.proxy import FilteringProxy
+    port = int(site.base.rsplit(":", 1)[1])
+
+    def through(p, req):
+        with socket.create_connection(("127.0.0.1", p.port), timeout=5) as s:
+            s.sendall(req)
+            s.settimeout(5)
+            out = b""
+            try:
+                while chunk := s.recv(65536):
+                    out += chunk
+            except OSError:
+                pass
+            return out
+
+    get = f"GET http://127.0.0.1:{port}/about HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode()
+    with FilteringProxy(allow_loopback=True, loopback_port=port, allow_hosts={"example.org"}) as p:
+        assert through(p, get).startswith(b"HTTP/1.1 403")
+        assert through(p, b"CONNECT cdn.evil.test:443 HTTP/1.1\r\n\r\n").startswith(b"HTTP/1.1 403")
+        assert {d["reason"] for d in p.denied} == {"host not allowed"}
+    with FilteringProxy(allow_loopback=True, loopback_port=port, allow_hosts={"127.0.0.1"}) as p:
+        assert b" 200 " in through(p, get).split(b"\r\n", 1)[0]
+
+
+def test_render_gets_the_run_allowlist(site, storage, monkeypatch):
+    import ww_scraper.render as render_mod
+    seen = []
+
+    def fake_render_dom(url, **kw):
+        seen.append(kw.get("allow_hosts"))
+        return "<html><body><p>rendered</p></body></html>"
+
+    monkeypatch.setattr(render_mod, "render_dom", fake_render_dom)
+    rec = run_actor("website-content-crawler", {"startUrls": [site.base + "/"], "minIntervalSecs": 0,
+                                                "maxPages": 1, "render": True},
+                    storage, allow_loopback=True, allow_hosts={"127.0.0.1"})
+    assert rec["status"] == "SUCCEEDED" and seen and seen[0] == frozenset({"127.0.0.1"})
