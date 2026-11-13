@@ -163,36 +163,50 @@ async function actorsView() {
       el("b", { text: a.title || a.name }), el("code", { text: a.name }), el("p", { text: a.description || "" })))));
 }
 
+function initial(spec) {
+  // prefill is shown in the form but, unlike default, is not applied when the field is left out
+  return spec.prefill !== undefined ? spec.prefill : spec.default;
+}
+
 function fieldFor(key, spec, required) {
   const id = "f-" + key;
   const type = spec.type;
+  const editor = spec.editor || "";
   const itemType = (spec.items || {}).type;
   const title = spec.title || key;
   const hint = spec.description ? el("p", { class: "hint", text: spec.description }) : null;
+  const start = initial(spec);
   let input, read;
   if (type === "boolean") {
-    input = el("input", { type: "checkbox", id, checked: spec.default === true });
+    input = el("input", { type: "checkbox", id, checked: start === true });
     read = () => input.checked;
     return { node: el("div", { class: "field check" }, el("label", { for: id }, input, title), hint), read, key };
   }
   if (type === "string" && Array.isArray(spec.enum)) {
     input = el("select", { id }, spec.enum.map((v) => el("option", { value: String(v), text: String(v),
-      selected: v === spec.default })));
+      selected: v === start })));
     read = () => input.value;
   } else if (type === "integer" || type === "number") {
     input = el("input", { type: "number", id, min: spec.minimum, max: spec.maximum,
       step: type === "integer" ? "1" : "any", placeholder: spec.default ?? "" });
+    if (spec.prefill !== undefined) input.value = String(spec.prefill);
     read = () => input.value.trim() === "" ? undefined : Number(input.value);
-  } else if (type === "array" && (!itemType || itemType === "string")) {
+  } else if (type === "array" && (!itemType || itemType === "string") && editor !== "json") {
     input = el("textarea", { id, spellcheck: "false", placeholder: "one per line" });
-    if (Array.isArray(spec.default)) input.value = spec.default.join("\n");
+    if (Array.isArray(start)) input.value = start.join("\n");
     read = () => { const v = input.value.split("\n").map((s) => s.trim()).filter(Boolean); return v.length ? v : undefined; };
-  } else if (type === "string") {
-    input = el("input", { type: "text", id, spellcheck: "false", placeholder: spec.default ?? "" });
+  } else if (type === "string" && editor !== "json") {
+    const kind = spec.secret ? "password" : editor === "datepicker" ? "date" : "text";
+    input = editor === "textarea"
+      ? el("textarea", { id, spellcheck: "false", placeholder: spec.default ?? "" })
+      : el("input", { type: kind, id, spellcheck: "false", autocomplete: spec.secret ? "off" : null,
+        placeholder: spec.secret ? "kept in memory only, never stored" : (spec.default ?? "") });
+    if (spec.pattern && input.tagName === "INPUT") input.setAttribute("pattern", spec.pattern);
+    if (!spec.secret && spec.prefill !== undefined) input.value = String(spec.prefill);
     read = () => input.value === "" ? undefined : input.value;
   } else {
     input = el("textarea", { id, spellcheck: "false", placeholder: "JSON" });
-    if (spec.default !== undefined) input.value = JSON.stringify(spec.default, null, 2);
+    if (start !== undefined) input.value = JSON.stringify(start, null, 2);
     read = () => {
       if (input.value.trim() === "") return undefined;
       try { return JSON.parse(input.value); } catch (e) { throw new Error(key + ": not valid JSON"); }
@@ -203,13 +217,31 @@ function fieldFor(key, spec, required) {
     el("label", { for: id }, title, required ? el("span", { class: "req", text: " *" }) : null), hint, input), read, key };
 }
 
+function formNodes(fields, specs) {
+  // a field with sectionCaption starts a new group that runs until the next one
+  const out = [];
+  let group = null;
+  fields.forEach((f) => {
+    const spec = specs[f.key] || {};
+    if (spec.sectionCaption) {
+      group = el("fieldset", { class: "section" }, el("legend", { text: spec.sectionCaption }),
+        spec.sectionDescription ? el("p", { class: "hint", text: spec.sectionDescription }) : null);
+      out.push(group);
+    }
+    (group || { append: (n) => out.push(n) }).append(f.node);
+  });
+  return out;
+}
+
 async function actorView(name) {
   const acts = (await apiJson("/v2/acts")).items || [];
   const a = acts.find((x) => x.name === name);
   if (!a) return view(el("h1", { text: "Actor not found" }), el("a", { href: "#/actors", text: "All actors" }));
   const schema = a.inputSchema || { properties: {} };
   const required = new Set(schema.required || []);
-  const fields = Object.entries(schema.properties || {}).map(([k, s]) => fieldFor(k, s, required.has(k)));
+  const specs = schema.properties || {};
+  const fields = Object.entries(specs).filter(([, s]) => s.editor !== "hidden")
+    .map(([k, s]) => fieldFor(k, s, required.has(k)));
   const errBox = el("div", { role: "alert" });
   const submit = el("button", { class: "btn primary", type: "submit", text: "Start run" });
   const onsubmit = async (ev) => {
@@ -239,7 +271,7 @@ async function actorView(name) {
     el("p", {}, el("a", { href: "#/actors", text: "All actors" })),
     el("h1", { text: a.title || a.name }),
     el("p", { class: "sub", text: a.description || "" }),
-    el("form", { class: "run", onsubmit }, fields.map((f) => f.node), errBox, el("div", { class: "row" }, submit)));
+    el("form", { class: "run", onsubmit }, formNodes(fields, specs), errBox, el("div", { class: "row" }, submit)));
   const first = document.querySelector("form.run input, form.run textarea, form.run select");
   if (first) first.focus();
 }

@@ -37,9 +37,10 @@ _MSG = {
         "max_items": "{f}: at most {v} item(s) allowed",
         "min_len": "{f}: must be at least {v} character(s)",
         "max_len": "{f}: must be at most {v} character(s)",
-        "pattern": "{f}: contains characters that are not allowed",
         "enum": "{f}: must be one of {v}",
         "item_type": "{f}[{i}]: expected {t}",
+        "pattern": "{f}: does not match the pattern {v}",
+        "date": "{f}: expected a date as YYYY-MM-DD",
     },
     "pl": {
         "not_object": "wejście musi być obiektem JSON",
@@ -52,11 +53,14 @@ _MSG = {
         "max_items": "{f}: dozwolone najwyżej {v} element(ów)",
         "min_len": "{f}: co najmniej {v} znak(ów)",
         "max_len": "{f}: najwyżej {v} znak(ów)",
-        "pattern": "{f}: zawiera niedozwolone znaki",
         "enum": "{f}: dozwolone wartości: {v}",
         "item_type": "{f}[{i}]: oczekiwano typu {t}",
+        "pattern": "{f}: wartość nie pasuje do wzorca {v}",
+        "date": "{f}: oczekiwano daty w formacie RRRR-MM-DD",
     },
 }
+
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 _TYPES = {
     "string": lambda v: isinstance(v, str),
@@ -79,9 +83,63 @@ def default_lang() -> str:
     return lang if lang in _MSG else "en"
 
 
+def _pattern_ok(pattern, value) -> bool:
+    try:
+        return re.search(pattern, value) is not None
+    except re.error:
+        return False
+
+
+def _field_errors(key, spec, v, m):
+    """[(keyword, message)] for one present value; v is already type-checked."""
+    out = []
+    t = spec.get("type")
+    if "enum" in spec and v not in spec["enum"]:
+        out.append(("enum", m["enum"].format(f=key, v=", ".join(map(str, spec["enum"])))))
+    if t in ("integer", "number"):
+        if "minimum" in spec and v < spec["minimum"]:
+            out.append(("minimum", m["min"].format(f=key, v=spec["minimum"])))
+        if "maximum" in spec and v > spec["maximum"]:
+            out.append(("maximum", m["max"].format(f=key, v=spec["maximum"])))
+    if t == "string":
+        if "minLength" in spec and len(v) < spec["minLength"]:
+            out.append(("minLength", m["min_len"].format(f=key, v=spec["minLength"])))
+        if "maxLength" in spec and len(v) > spec["maxLength"]:
+            out.append(("maxLength", m["max_len"].format(f=key, v=spec["maxLength"])))
+        if spec.get("pattern") and v and not _pattern_ok(spec["pattern"], v):
+            out.append(("pattern", m["pattern"].format(f=key, v=spec["pattern"])))
+        if spec.get("editor") == "datepicker" and v and not _DATE_RE.fullmatch(v):
+            out.append(("format", m["date"].format(f=key)))
+    if t == "array":
+        if "minItems" in spec and len(v) < spec["minItems"]:
+            out.append(("minItems", m["min_items"].format(f=key, v=spec["minItems"])))
+        if "maxItems" in spec and len(v) > spec["maxItems"]:
+            out.append(("maxItems", m["max_items"].format(f=key, v=spec["maxItems"])))
+        items = spec.get("items") or {}
+        it = items.get("type")
+        for i, el in enumerate(v):
+            if it and not _TYPES[it](el):
+                out.append(("items", m["item_type"].format(f=key, i=i, t=it)))
+            elif it == "string" and items.get("pattern") and not _pattern_ok(items["pattern"], el):
+                out.append(("pattern", m["pattern"].format(f=f"{key}[{i}]", v=items["pattern"])))
+    return out
+
+
+def _custom(key, spec, keyword, message):
+    """errorMessage: one text for the field, or {keyword: text}."""
+    custom = spec.get("errorMessage")
+    if isinstance(custom, str):
+        return f"{key}: {custom}"
+    if isinstance(custom, dict) and isinstance(custom.get(keyword), str):
+        return f"{key}: {custom[keyword]}"
+    return message
+
+
 def validate_input(schema: dict, data, lang: str = None):
     """Validate data against a small JSON-Schema subset (type, required, default, enum,
-    minimum/maximum, minLength/maxLength, pattern, minItems/maxItems, items.type).
+    minimum/maximum, minLength/maxLength, pattern, minItems/maxItems, items.type and
+    items.pattern, a YYYY-MM-DD check for editor "datepicker", and errorMessage).
+    prefill, editor, sectionCaption and secret are hints for forms; see secret_fields().
     An array of strings also takes {"url": "..."} objects, the shape other scraping
     platforms use for start URLs; they are reduced to the URL string.
     Returns (clean_input, errors); errors are in English or Polish (lang='pl')."""
@@ -99,7 +157,7 @@ def validate_input(schema: dict, data, lang: str = None):
     for key, spec in props.items():
         if key not in data or data[key] is None:
             if key in schema.get("required", []):
-                errors.append(m["required"].format(f=key))
+                errors.append(_custom(key, spec, "required", m["required"].format(f=key)))
             elif "default" in spec:
                 d = spec["default"]
                 clean[key] = list(d) if isinstance(d, list) else d
@@ -113,34 +171,30 @@ def validate_input(schema: dict, data, lang: str = None):
         if t == "number" and isinstance(v, int) and not isinstance(v, bool):
             v = float(v)
         if t and not _TYPES[t](v):
-            errors.append(m["type"].format(f=key, t=t))
+            errors.append(_custom(key, spec, "type", m["type"].format(f=key, t=t)))
             continue
-        if "enum" in spec and v not in spec["enum"]:
-            errors.append(m["enum"].format(f=key, v=", ".join(map(str, spec["enum"]))))
-        if t in ("integer", "number"):
-            if "minimum" in spec and v < spec["minimum"]:
-                errors.append(m["min"].format(f=key, v=spec["minimum"]))
-            if "maximum" in spec and v > spec["maximum"]:
-                errors.append(m["max"].format(f=key, v=spec["maximum"]))
-        if t == "string":
-            if "minLength" in spec and len(v) < spec["minLength"]:
-                errors.append(m["min_len"].format(f=key, v=spec["minLength"]))
-            if "maxLength" in spec and len(v) > spec["maxLength"]:
-                errors.append(m["max_len"].format(f=key, v=spec["maxLength"]))
-            if "pattern" in spec and not re.fullmatch(spec["pattern"], v):
-                errors.append(m["pattern"].format(f=key))
-        if t == "array":
-            if "minItems" in spec and len(v) < spec["minItems"]:
-                errors.append(m["min_items"].format(f=key, v=spec["minItems"]))
-            if "maxItems" in spec and len(v) > spec["maxItems"]:
-                errors.append(m["max_items"].format(f=key, v=spec["maxItems"]))
-            it = (spec.get("items") or {}).get("type")
-            if it:
-                for i, el in enumerate(v):
-                    if not _TYPES[it](el):
-                        errors.append(m["item_type"].format(f=key, i=i, t=it))
+        errors += [_custom(key, spec, kw, msg) for kw, msg in _field_errors(key, spec, v, m)]
         clean[key] = v
     return clean, errors
+
+
+def fill_secrets(actor, data):
+    """A copy of data with missing secret fields taken from their environment variables."""
+    if not isinstance(data, dict):
+        return data
+    data = dict(data)
+    for key, env in secret_fields(actor.input_schema).items():
+        if data.get(key) in (None, "") and env and os.environ.get(env):
+            data[key] = os.environ[env]
+    return data
+
+
+def secret_fields(schema: dict) -> dict:
+    """{field: env var name or None} for fields marked "secret": true. A secret is never
+    written to the stored INPUT, a task, a log line or the console; when it is not given,
+    it is read from the environment variable named by the field's "env"."""
+    return {k: (spec.get("env") or None) for k, spec in (schema.get("properties") or {}).items()
+            if spec.get("secret")}
 
 
 # Common schema fragments reused by the actors.
@@ -191,9 +245,13 @@ class RunLog:
     def __init__(self, path, stream=None):
         self.path = path
         self.stream = stream
+        self.secrets: list = []          # values replaced by [secret] in every line
         self._lock = threading.Lock()
 
     def _write(self, level, msg):
+        msg = str(msg)
+        for secret in self.secrets:
+            msg = msg.replace(secret, "[secret]")
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S")
         line = f"{ts} {level:5s} {msg}"
         with self._lock:
@@ -240,6 +298,8 @@ MAX_CALL_DEPTH = 4
 STATE_KEY = "STATE"
 STATE_PERSIST_SECS = 60.0               # ctx.call_actor() nesting: a run calling itself stops here
 
+# run id -> secret input values of a prepared run, kept in memory only
+_SECRETS: dict = {}
 # run id -> RunContext of every run executing in this process (for abort requests)
 _LIVE: dict = {}
 _LIVE_LOCK = threading.Lock()
@@ -538,6 +598,8 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
             if input is None:
                 input = storage.kv(run_id).get("INPUT", {})
     input, opts, opt_errors = split_options(actor, input, options, lang)
+    secrets = secret_fields(actor.input_schema)
+    input = fill_secrets(actor, input)
     if prev:
         opts = dict(prev.get("options") or {}, **opts)
     clean, errors = validate_input(actor.input_schema, input, lang)
@@ -562,6 +624,9 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
         "stats": {},
         "itemCount": 0,
     }
+    held = {k: clean.pop(k) for k in secrets if k in clean}
+    if held:
+        _SECRETS[run_id] = held      # in this process only, handed to the run when it starts
     storage.kv(run_id).set("INPUT", clean)
     storage.save_run(rec)
     return rec
@@ -573,8 +638,14 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
     storage = storage or Storage()
     actor = get_actor(rec["actId"])
     clean = storage.kv(rec["id"]).get("INPUT", {})
+    held = _SECRETS.pop(rec["id"], {})
+    for key, env in secret_fields(actor.input_schema).items():
+        if key not in held and env and os.environ.get(env):
+            held[key] = os.environ[env]
+    clean.update(held)
     ctx = RunContext(rec["id"], actor, clean, storage, allow_loopback=allow_loopback,
                      log_stream=log_stream, abort_event=abort_event, record=rec, parent=parent)
+    ctx.log.secrets = [v for v in held.values() if isinstance(v, str) and len(v) >= 4]
     timeout = float((rec.get("options") or {}).get("timeoutSecs") or 0) or None
     if parent is not None and parent.remaining_secs is not None:
         # a called run never outlives the run that called it

@@ -118,7 +118,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 | `Dataset`      | append-only JSONL; export as `json`, `jsonl`, `csv`, `xlsx`, `xml`, `html` or `rss`, with `fields` to pick and order columns, `omit`, `flatten`, `unwind`, `desc` and `clean` (formulas never evaluated) |
 | `KeyValueStore`| named files with their content-type (`INPUT`, `OUTPUT`, `llms.txt`...)   |
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash; `forefront` adds and `add_many` batches |
-| `Actor`        | name + `input_schema` (validated, errors in English or Polish) + `run(ctx)` |
+| `Actor`        | name + `input_schema` (validated: types, ranges, `pattern`, `errorMessage`; errors in English or Polish; form hints `prefill`, `sectionCaption`, `editor`; `secret` fields never stored) + `run(ctx)` |
 | `RunContext`   | input, dataset, kv, queue, log, polite session, statistics, `use_state()` (saved every 60 s and at the end, back on resume); `ctx.dataset("name")`, `ctx.kv("name")`, `ctx.queue("name")` open named storages |
 | Named storage  | a storage opened by name: shared by every run that uses the name, kept by `purge`; `--dataset NAME` appends a run's items to one |
 | Run record     | `storage/runs/<id>.json`: READY / RUNNING / ABORTING / TIMING-OUT / SUCCEEDED / FAILED / ABORTED / TIMED-OUT, times, counters, live status message |

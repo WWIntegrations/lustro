@@ -127,6 +127,14 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - Webhook events `ACTOR.RUN.CREATED` and `ACTOR.RUN.RESURRECTED`, sent when a run starts or
   is resumed, to webhooks that list them in `eventTypes`; without `eventTypes` a webhook
   still gets only the four finish events.
+- Input schemas: `pattern` (also on string list items), `errorMessage` (one text, or per
+  keyword), YYYY-MM-DD dates for `editor: "datepicker"`, and form hints `prefill` (shown,
+  not applied like `default`), `sectionCaption` / `sectionDescription` (grouped in the
+  console form), `editor` (`textarea`, `json`, `datepicker`, `hidden`).
+- Secret inputs: a field with `"secret": true` reaches the run but is never written to the
+  stored `INPUT`, a task file or the run log (its value is replaced by `[secret]`); with
+  `"env": "NAME"` it is read from that environment variable when not given, which is also
+  how a task or a resumed run gets it. The console shows it as a password field.
 
 ## 0.9.0 (2026-11-12)
 

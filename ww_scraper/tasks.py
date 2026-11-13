@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from .actor import InputError, _now, get_actor, run_actor, split_options, validate_input
+from .actor import InputError, _now, fill_secrets, get_actor, run_actor, secret_fields, split_options, validate_input
 from .storage import Storage, StorageError, atomic_write, check_name
 
 
@@ -28,7 +28,7 @@ def _path(storage: Storage, name: str):
 
 def _check(actor, data, options, lang=None):
     data, opts, errors = split_options(actor, data, options, lang)
-    _, input_errors = validate_input(actor.input_schema, data, lang)
+    _, input_errors = validate_input(actor.input_schema, fill_secrets(actor, data), lang)
     if errors + input_errors:
         raise InputError(errors + input_errors)
     return data, opts
@@ -42,6 +42,8 @@ def save_task(storage: Storage, name: str, actor_name: str, input=None, options=
     if actor is None:
         raise TaskError(f"unknown actor: {actor_name}")
     data, opts = _check(actor, input or {}, options, lang)
+    # a secret is never written to disk: a task run reads it from the field's env variable
+    data = {k: v for k, v in data.items() if k not in secret_fields(actor.input_schema)}
     prev = load_task(storage, name) or {}
     task = {"name": name, "actId": actor.name, "input": data, "options": opts,
             "createdAt": prev.get("createdAt") or _now(), "modifiedAt": _now()}
