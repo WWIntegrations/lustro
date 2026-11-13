@@ -630,22 +630,64 @@ class _QueueBase:
             return
         if op == "add" and key not in self._requests:
             self._requests[key] = {k: ev.get(k) for k in ("unique_key", "url", "depth", "user_data")}
-            self._pending.append(key)
+            if ev.get("forefront"):
+                self._pending.appendleft(key)
+            else:
+                self._pending.append(key)
         elif op in ("handled", "failed") and key in self._requests:
             self._handled.add(key)
             if ev.get("error"):
                 self._requests[key]["error"] = ev["error"]
 
-    def add(self, url: str, unique_key: str = None, depth: int = 0, user_data=None) -> bool:
-        key = unique_key or normalize_url(url)
+    def _add_event(self, url, unique_key, depth, user_data, forefront):
+        ev = {"op": "add", "unique_key": unique_key or normalize_url(url), "url": url,
+              "depth": int(depth), "user_data": user_data or {}}
+        if forefront:
+            ev["forefront"] = True
+        return ev
+
+    def add(self, url: str, unique_key: str = None, depth: int = 0, user_data=None,
+            forefront: bool = False) -> bool:
+        """Add a request unless its unique_key is known. forefront=True puts it at the head
+        of the queue (handled next) instead of the tail."""
+        ev = self._add_event(url, unique_key, depth, user_data, forefront)
         with self._lock:
-            if key in self._requests:
+            if ev["unique_key"] in self._requests:
                 return False
-            ev = {"op": "add", "unique_key": key, "url": url, "depth": int(depth),
-                  "user_data": user_data or {}}
             self._log(ev)
             self._apply(ev)
             return True
+
+    def add_many(self, requests, forefront: bool = False) -> list:
+        """Add several requests (URLs or dicts with url, unique_key, depth, user_data) in one
+        journal write. Returns one bool per request: True when it was new. With forefront,
+        the batch goes to the head of the queue in the order given."""
+        evs = []
+        for r in requests:
+            r = {"url": r} if isinstance(r, str) else dict(r)
+            evs.append(self._add_event(r["url"], r.get("unique_key"), r.get("depth", 0),
+                                       r.get("user_data"), forefront))
+        out, new, keys = [], [], set()
+        with self._lock:
+            for ev in evs:
+                key = ev["unique_key"]
+                if key in self._requests or key in keys:
+                    out.append(False)
+                    continue
+                keys.add(key)
+                new.append(ev)
+                out.append(True)
+            if forefront:
+                new.reverse()            # appendleft one by one keeps the given order
+            if new:
+                self._log_many(new)
+                for ev in new:
+                    self._apply(ev)
+        return out
+
+    def _log_many(self, events) -> None:
+        for ev in events:
+            self._log(ev)
 
     def fetch_next(self):
         with self._lock:
@@ -709,9 +751,12 @@ class RequestQueue(_QueueBase):
                         continue
 
     def _log(self, event: dict) -> None:
+        self._log_many([event])
+
+    def _log_many(self, events) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
         with open(self.file, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+            fh.write("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events))
 
 
 class MemoryRequestQueue(_QueueBase):

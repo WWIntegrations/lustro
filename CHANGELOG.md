@@ -118,6 +118,9 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - Actor state: `ctx.use_state(default)` returns a dict saved to the run's key-value store
   (`STATE`) every 60 seconds and whenever the run ends, in any status; a resumed run gets
   it back.
+- Request queue: `add(url, forefront=True)` puts a request at the head of the queue, and
+  `add_many(requests, forefront=False)` adds a batch in one journal write; the journal
+  replays both in the same order after a crash.
 
 ## 0.9.0 (2026-11-12)
 
