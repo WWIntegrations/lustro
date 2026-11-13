@@ -118,3 +118,25 @@ def test_double_escaped_title_and_description_are_decoded():
     p = parse_html(SHARE_PAGE, "https://e.com/a")
     assert p.title == "Q&A: Likes & Hashtags"
     assert p.description == "Tips & tricks"
+
+
+def test_share_check_stays_linear_on_deep_nesting():
+    import time
+    deep = "<div>" * 3000 + "<p>end</p>" + "</div>" * 3000   # deeper than the recursion limit
+    t0 = time.monotonic()
+    p = parse_html("<html><body><main>" + deep + "</main></body></html>", "https://e.com/")
+    assert "end" in p.markdown and time.monotonic() - t0 < 5
+
+
+def test_nested_tables_render_in_linear_time():
+    import time
+    t0 = time.monotonic()
+    p = parse_html("<html><body><main>" + "<table><tr><td>" * 50 + "deep" + "</main></body></html>",
+                   "https://e.com/")
+    assert "deep" in p.markdown and time.monotonic() - t0 < 2
+
+
+def test_nested_table_rows_stay_in_their_own_table():
+    p = parse_html("<html><body><main><table><tr><td>outer</td><td><table><tr><td>inner</td>"
+                   "</tr></table></td></tr></table></main></body></html>", "https://e.com/")
+    assert p.markdown.count("| outer |") == 1 and p.markdown.count("inner") == 1
