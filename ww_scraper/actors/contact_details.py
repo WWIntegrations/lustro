@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from urllib.parse import unquote, urlsplit
 
-from ..actor import Actor, BROWSER_ACTIONS, MIN_INTERVAL, REDACT, RENDER, START_URLS, WAIT_FOR
+from ..actor import BROWSER_ACTIONS, MIN_INTERVAL, REDACT, RENDER, START_URLS, WAIT_FOR, Actor
 from ..compliance import _EMAIL_RE, _PHONE_RE, _phone_sub, redact_obj
 from ..schema import STR_OR_NULL
 from ..schema_types import is_organization_type

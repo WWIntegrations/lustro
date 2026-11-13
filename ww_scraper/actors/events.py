@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import datetime
 
-from ..actor import (Actor, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS,
-                     WAIT_FOR)
+from ..actor import (AUTOSCALE, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER,
+                     START_URLS, WAIT_FOR, Actor)
 from ..schema import STR_OR_NULL
 from ._api import first, html_to_text
 from .product_catalog import _enum, _name, _offer, _types, _url
@@ -118,6 +118,7 @@ class Events(Actor):
                              "default": ["*/login*", "*/account*", "*/cart*", "*/koszyk*"]},
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
+            "autoscaleConcurrency": AUTOSCALE,
             "render": RENDER,
             "waitForSelector": WAIT_FOR,
             "browserActions": BROWSER_ACTIONS,

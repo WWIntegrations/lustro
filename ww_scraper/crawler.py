@@ -15,6 +15,7 @@ from __future__ import annotations
 import concurrent.futures
 from email.utils import parsedate_to_datetime
 import fnmatch
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -38,6 +39,53 @@ REDIRECT_CODES = (301, 302, 303, 307, 308)
 _SKIP_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".pdf", ".zip",
              ".gz", ".tar", ".mp4", ".mp3", ".webm", ".mov", ".avi", ".woff", ".woff2",
              ".ttf", ".css", ".js", ".json", ".xml", ".dmg", ".exe")
+
+
+def machine_load():
+    """(1-minute load average per CPU, share of memory available or None). Memory is read
+    from /proc/meminfo where it exists (Linux); elsewhere only the load is known."""
+    try:
+        load = os.getloadavg()[0] / max(1, os.cpu_count() or 1)
+    except OSError:
+        load = 0.0
+    free = None
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            info = {k: int(v.split()[0]) for k, v in (line.split(":", 1) for line in fh if ":" in line)}
+        free = info["MemAvailable"] / info["MemTotal"]
+    except (OSError, KeyError, ValueError, ZeroDivisionError):
+        pass
+    return load, free
+
+
+class LoadScaler:
+    """Concurrency that follows the machine: starts at 2 (or 1) and, every `interval`
+    seconds, adds a worker while the load per CPU is under `low` and memory is fine, and
+    drops one when the load is over `high` or less than `min_free` of memory is available.
+    It never goes above the run's maxConcurrency, and per-host spacing is not affected:
+    more workers only help a crawl that spans several hosts."""
+
+    def __init__(self, maximum: int, *, low=0.6, high=0.9, min_free=0.1, interval=2.0, probe=machine_load):
+        self.maximum = max(1, int(maximum))
+        self.value = min(2, self.maximum)
+        self.low, self.high, self.min_free, self.interval, self.probe = low, high, min_free, interval, probe
+        self._next = 0.0
+        self.changes = 0
+
+    def current(self) -> int:
+        now = time.monotonic()
+        if now < self._next:
+            return self.value
+        self._next = now + self.interval
+        load, free = self.probe()
+        tight = free is not None and free < self.min_free
+        if (load > self.high or tight) and self.value > 1:
+            self.value -= 1
+            self.changes += 1
+        elif load < self.low and not tight and self.value < self.maximum:
+            self.value += 1
+            self.changes += 1
+        return self.value
 
 
 @dataclass
@@ -171,6 +219,7 @@ class PoliteCrawler:
         self._streak: dict = {}
         self._pace_lock = threading.Lock()
         self.default_concurrency = 1
+        self.autoscale = False       # True: concurrency follows the machine's load (LoadScaler)
         self.render = False          # True: HTML pages are re-read through headless Chrome;
         #                              "auto": only pages that look script-built (see needs_render)
         self.render_wait_ms = 3000
@@ -559,13 +608,19 @@ class PoliteCrawler:
         # limiter reserves a slot per host. on_page and the queue are only touched here,
         # in the calling thread, so actors need no locking.
         inflight: dict = {}
+        scaler = LoadScaler(workers) if self.autoscale else None
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers,
                                                    thread_name_prefix="ww-scraper") as pool:
             try:
                 while True:
                     if self.ctx is not None:
                         self.ctx.check_abort()
-                    while len(inflight) < workers and processed + len(inflight) < max_pages:
+                    limit = scaler.current() if scaler else workers
+                    if scaler and limit != self.stats.get("concurrency"):
+                        self.stats["concurrency"] = limit
+                        if self.log:
+                            self.log.info(f"autoscale: {limit} of at most {workers} workers")
+                    while len(inflight) < limit and processed + len(inflight) < max_pages:
                         req = queue.fetch_next()
                         if req is None:
                             break

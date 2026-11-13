@@ -224,6 +224,9 @@ ACCEPT_LANGUAGE = {"type": "string", "default": "", "maxLength": 200,
                    "description": "Accept-Language sent with every request and to the browser, "
                                   "e.g. 'en-US,en;q=0.9' to get one language version of the site "
                                   "regardless of where the run happens"}
+AUTOSCALE = {"type": "boolean", "default": False,
+             "description": ("Let concurrency follow this machine's load and memory, between 1 and "
+                             "maxConcurrency (per-host spacing is unchanged)")}
 REDACT = {"type": "boolean", "default": True,
           "description": "Mask e-mail addresses and phone numbers in output (GDPR default)"}
 
@@ -613,6 +616,7 @@ class RunContext:
         min_interval = kwargs.pop("min_interval", self.input.get("minIntervalSecs", 1.0))
         crawler = PoliteCrawler(self, min_interval=min_interval, **kwargs)
         crawler.default_concurrency = int(self.input.get("maxConcurrency", 1) or 1)
+        crawler.autoscale = bool(self.input.get("autoscaleConcurrency", False))
         render = self.input.get("render", False)
         crawler.render = "auto" if render == "auto" else bool(render)
         inp = self.input
