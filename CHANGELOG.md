@@ -159,6 +159,8 @@ Defects found while measuring 150 local business sites; seven of them changed re
   refuses a non-loopback base URL.
 - `clients/js/ww-scraper-client.mjs`: the same client for Node 18+ in one dependency-free
   file; other languages can generate one from `docs/openapi.json`.
+- `ww-scraper serve --max-runs N`: at most N runs execute at once; the others stay READY
+  with a status message until a slot is free, and can be aborted while they wait.
 - Actor versions: `Actor.version` (the package version when not set) is shown by
   `GET /v2/acts` and written to each run record as `actVersion`.
 
