@@ -25,7 +25,7 @@ from .compliance import (USER_AGENT, SSRFBlocked, check_target, host_allowed,
                          is_loopback_host, pin_session)
 
 EVENTS = {"SUCCEEDED": "ACTOR.RUN.SUCCEEDED", "FAILED": "ACTOR.RUN.FAILED",
-          "ABORTED": "ACTOR.RUN.ABORTED"}
+          "ABORTED": "ACTOR.RUN.ABORTED", "TIMED-OUT": "ACTOR.RUN.TIMED_OUT"}
 
 
 def sign(secret: str, timestamp: str, body: bytes) -> str:

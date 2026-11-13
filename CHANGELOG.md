@@ -72,6 +72,14 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- Run timeout: `--timeout SECS` on `ww-scraper run`, `?timeout=` on the API, or
+  `"timeoutSecs"` as a top-level input key. A run over its time is asked to stop, shows
+  TIMING-OUT while the actor winds down and ends TIMED-OUT with the items it stored. A stop
+  asked through the API shows ABORTING until the actor stops. New webhook event
+  `ACTOR.RUN.TIMED_OUT`.
+- Live status messages: `ctx.set_status_message(text)` writes the text to the run record at
+  once (redacted like any output); `ww-scraper runs`, `GET /v2/actor-runs/<id>` and the
+  console run page show it.
 
 ## 0.9.0 (2026-11-12)
 

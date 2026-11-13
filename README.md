@@ -68,7 +68,7 @@ copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's 
 ww-scraper actors                                     # the fifteen built-in actors
 ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.com/"], "render": true, "maxConcurrency": 4}'
-ww-scraper runs                                       # what ran, with status and item counts
+ww-scraper runs                                       # what ran, with status, item counts and status message
 ww-scraper report <run-id>                            # one HTML file you can open or send
 ww-scraper init price-watch                           # your own actor in one Python file
 ww-scraper run ./price_watch.py --input '{"startUrls": ["https://example.com/"]}'
@@ -83,6 +83,7 @@ ww-scraper serve                                      # local HTTP API, token re
 | A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format xlsx --out items.xlsx` |
 | Know why a URL was skipped | `robots-audit` shows the group, the rule and the pattern that decided |
 | Watch a site for changes | `change-monitor` with a `monitorName`, on a schedule printed by `ww-scraper schedule` |
+| A run that must not hang | `--timeout SECS` (or `"timeoutSecs"` in the input): the run ends TIMED-OUT and keeps what it stored |
 
 How this compares with a hosted platform, including what it does not do:
 [docs/comparison.md](docs/comparison.md). The decisions behind it and the defects found on the
@@ -113,7 +114,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash           |
 | `Actor`        | name + `input_schema` (validated, errors in English or Polish) + `run(ctx)` |
 | `RunContext`   | input, dataset, kv, queue, log, polite session, statistics              |
-| Run record     | `storage/runs/<id>.json`: READY / RUNNING / SUCCEEDED / FAILED / ABORTED, times, counters |
+| Run record     | `storage/runs/<id>.json`: READY / RUNNING / ABORTING / TIMING-OUT / SUCCEEDED / FAILED / ABORTED / TIMED-OUT, times, counters, live status message |
 
 `PoliteCrawler` is the only way actors fetch pages: robots.txt per origin (RFC 9309, cached, with
 Crawl-delay), a minimum interval per host, retries with backoff on 429/5xx that honour
@@ -206,7 +207,7 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 | Route | |
 |---|---|
 | `GET /v2/acts` | list actors with input schemas |
-| `POST /v2/acts/<name>/runs?waitForFinish=60` | start a run, body = input JSON |
+| `POST /v2/acts/<name>/runs?waitForFinish=60&timeout=300` | start a run, body = input JSON |
 | `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop) |
 | `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html&fields=a,b` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
@@ -242,7 +243,7 @@ Requests with a non-loopback `Host` header (DNS-rebinding guard) or a non-loopba
 
 ### Webhooks
 
-After a run, ww-scraper can POST `ACTOR.RUN.SUCCEEDED|FAILED|ABORTED` events (CLI
+After a run, ww-scraper can POST `ACTOR.RUN.SUCCEEDED|FAILED|ABORTED|TIMED_OUT` events (CLI
 `--webhook URL`, or the API `webhooks` query parameter as base64 JSON
 `[{"requestUrl": ..., "eventTypes": [...]}]`). Only hosts in `WW_SCRAPER_WEBHOOK_HOSTS`
 (comma separated) are contacted, over HTTPS, without following redirects, and only
