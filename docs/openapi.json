@@ -709,7 +709,25 @@
             "schema": {
               "type": "string"
             },
-            "description": "json, jsonl, csv, xlsx, xml, html, rss"
+            "description": "json, jsonl, csv, xlsx, xml, html, rss, chunks"
+          },
+          {
+            "name": "chunkSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "chunks format: characters per chunk (default 2000)"
+          },
+          {
+            "name": "chunkOverlap",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "chunks format: overlap in characters (default 200)"
           },
           {
             "name": "offset",
@@ -1022,7 +1040,25 @@
             "schema": {
               "type": "string"
             },
-            "description": "json, jsonl, csv, xlsx, xml, html, rss"
+            "description": "json, jsonl, csv, xlsx, xml, html, rss, chunks"
+          },
+          {
+            "name": "chunkSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "chunks format: characters per chunk (default 2000)"
+          },
+          {
+            "name": "chunkOverlap",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "chunks format: overlap in characters (default 200)"
           },
           {
             "name": "offset",

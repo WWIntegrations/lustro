@@ -130,7 +130,7 @@ def _csv_cell(v) -> str:
     return v
 
 
-EXPORT_FORMATS = ("json", "jsonl", "csv", "xlsx", "xml", "html", "rss")
+EXPORT_FORMATS = ("json", "jsonl", "csv", "xlsx", "xml", "html", "rss", "chunks")
 # Characters XML 1.0 cannot hold at all (they are not escapable): dropped, never sent raw.
 _XML_INVALID = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 _XLSX_CELL_MAX = 32767          # Excel refuses longer cells
@@ -487,8 +487,11 @@ class Dataset:
         return views[name]
 
     def export(self, fmt: str = "json", offset: int = 0, limit=None, fields=None, *,
-               omit=None, flatten=False, unwind=None, desc=False, clean=False, view=None):
-        """Return (bytes, content_type) in json | jsonl | csv | xlsx | xml | html | rss.
+               omit=None, flatten=False, unwind=None, desc=False, clean=False, view=None,
+               chunk_size=None, chunk_overlap=None):
+        """Return (bytes, content_type) in json | jsonl | csv | xlsx | xml | html | rss | chunks.
+        chunks: JSONL, one record per Markdown chunk with url, title and headingPath
+        (chunk_size and chunk_overlap in characters, see ww_scraper/loaders.py);
         fields: keep only these keys (dotted paths reach into objects), in this order;
         omit: drop these keys or dotted paths; flatten: nested objects to dotted keys;
         unwind: one row per element of this list field; desc: newest first;
@@ -515,6 +518,15 @@ class Dataset:
                                unwind=unwind or None, clean=clean)
         if fmt == "rss":
             return _rss(items, f"Dataset {self.id}"), "application/rss+xml; charset=utf-8"
+        if fmt == "chunks":
+            from .loaders import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP, chunk_items
+            try:
+                rows = chunk_items(items, chunk_size or DEFAULT_CHUNK_SIZE,
+                                   DEFAULT_OVERLAP if chunk_overlap is None else chunk_overlap)
+                body = "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in rows)
+            except ValueError as e:
+                raise StorageError(str(e)) from None
+            return body.encode("utf-8"), "application/jsonl; charset=utf-8"
         if fmt == "json":
             return (json.dumps(items, ensure_ascii=False, indent=2).encode("utf-8"),
                     "application/json; charset=utf-8")

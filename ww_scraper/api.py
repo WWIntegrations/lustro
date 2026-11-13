@@ -13,8 +13,8 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
     POST /v2/actor-runs/<id>/abort
     POST /v2/actor-runs/<id>/resurrect[?timeout=<s>&waitForFinish=<s>]   run a finished run again
                                                         with its storages and stored input
-    GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html|rss[&offset=&limit=&fields=a,b
-         &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1&view=name]
+    GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html|rss|chunks[&offset=&limit=&fields=a,b
+         &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1&view=name&chunkSize=&chunkOverlap=]
     GET  /v2/key-value-stores/<id>/records/<key>
     GET  /v2/actor-runs/<id>/log                        last 256 KB of the run log
     GET  /v2/acts/<name>                                one actor with its schemas and version
@@ -270,14 +270,8 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 offset = int(q.get("offset", 0))
                 limit = int(q["limit"]) if "limit" in q else None
-                split = lambda k: [f.strip() for f in q[k].split(",")] if q.get(k) else None
-                flag = lambda k: q.get(k, "").lower() in ("1", "true", "yes")
                 fmt = q.get("format", "json")
-                body, ctype = st.dataset(did).export(fmt, offset, limit, split("fields"),
-                                                     omit=split("omit"), flatten=flag("flatten"),
-                                                     unwind=q.get("unwind") or None,
-                                                     desc=flag("desc"), clean=flag("clean"),
-                                                     view=q.get("view") or None)
+                body, ctype = st.dataset(did).export(fmt, offset, limit, **self._view_args(q))
             except (ValueError, StorageError) as e:
                 return self._error(400, "invalid-request", str(e))
             extra = {}
@@ -592,19 +586,27 @@ class _Handler(BaseHTTPRequestHandler):
         if rec["status"] not in ("SUCCEEDED", "TIMED-OUT"):
             return self._json(400, {"error": {"type": "run-failed", "message": rec.get("statusMessage") or "",
                                               "run": rec}})
-        split = lambda k: [f.strip() for f in q[k].split(",")] if q.get(k) else None
-        flag = lambda k: q.get(k, "").lower() in ("1", "true", "yes")
         fmt = q.get("format", "json")
         try:
             body, ctype = self.ctx.storage.dataset(rec["defaultDatasetId"]).export(
-                fmt, int(q.get("offset", 0)), int(q["limit"]) if "limit" in q else None, split("fields"),
-                omit=split("omit"), flatten=flag("flatten"), unwind=q.get("unwind") or None,
-                desc=flag("desc"), clean=flag("clean"), view=q.get("view") or None)
+                fmt, int(q.get("offset", 0)), int(q["limit"]) if "limit" in q else None, **self._view_args(q))
         except (ValueError, StorageError) as e:
             return self._error(400, "invalid-request", str(e))
         if fmt == "html":
             extra["Content-Security-Policy"] = "sandbox"
         return self._send(200, body, ctype, extra)
+
+    @staticmethod
+    def _view_args(q) -> dict:
+        """Export options from a query string (fields, omit, flatten, unwind, desc, clean,
+        view, chunkSize, chunkOverlap). Raises ValueError for a bad number."""
+        split = lambda k: [f.strip() for f in q[k].split(",")] if q.get(k) else None
+        flag = lambda k: q.get(k, "").lower() in ("1", "true", "yes")
+        num = lambda k: int(q[k]) if q.get(k) else None
+        return {"fields": split("fields"), "omit": split("omit"), "flatten": flag("flatten"),
+                "unwind": q.get("unwind") or None, "desc": flag("desc"), "clean": flag("clean"),
+                "view": q.get("view") or None, "chunk_size": num("chunkSize"),
+                "chunk_overlap": num("chunkOverlap")}
 
     def _started(self, rec, q):
         try:

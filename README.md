@@ -116,7 +116,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 
 | Primitive      | What it is                                                              |
 |----------------|-------------------------------------------------------------------------|
-| `Dataset`      | append-only JSONL; export as `json`, `jsonl`, `csv`, `xlsx`, `xml`, `html` or `rss`, with `fields` to pick and order columns, `omit`, `flatten`, `unwind`, `desc` and `clean` (formulas never evaluated) |
+| `Dataset`      | append-only JSONL; export as `json`, `jsonl`, `csv`, `xlsx`, `xml`, `html`, `rss` or `chunks` (Markdown chunks for RAG), with `fields` to pick and order columns, `omit`, `flatten`, `unwind`, `desc` and `clean` (formulas never evaluated) |
 | `KeyValueStore`| named files with their content-type (`INPUT`, `OUTPUT`, `llms.txt`...)   |
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash; `forefront` adds and `add_many` batches |
 | Actor schemas  | `output_schema` (named result links in the run record), `dataset_schema` (every item checked on push, named export views), `kv_schema` (key collections with content types), `version` |
@@ -165,8 +165,23 @@ ww-scraper export <dataset-id> --format csv
 ww-scraper export <dataset-id> --format xlsx --fields url,title --out items.xlsx
 ww-scraper export <dataset-id> --format csv --flatten --unwind emails --omit pagesRead
 ww-scraper export <dataset-id> --format rss --desc > feed.xml   # new postings in a feed reader
+ww-scraper export <dataset-id> --format chunks --chunk-size 1500 > chunks.jsonl   # for a vector store
 ww-scraper run robots-audit --input '{"startUrls": ["https://example.com/"], "testPaths": ["/", "/admin"]}'
 ww-scraper run change-monitor --input '{"startUrls": ["https://example.com/"], "monitorName": "example"}'
+```
+
+For RAG, `--format chunks` (or `?format=chunks` on the API) writes one JSON line per chunk of
+each page's Markdown: `id` (stable for the same URL and text, so re-imports upsert), `url`,
+`title`, `headingPath` (the headings the chunk sits under), `chunkIndex`, `chunkCount` and
+`text`. Chunks follow headings first, then paragraphs, with an overlap between pieces of
+one long section. From Python, `ww_scraper.loaders.DatasetLoader` returns the same pages
+or chunks as documents with `page_content` and `metadata`; it is a LangChain `BaseLoader`
+when `langchain_core` is installed and needs nothing extra otherwise, and `to_llama_index()`
+converts to LlamaIndex documents:
+
+```python
+from ww_scraper.loaders import DatasetLoader
+docs = DatasetLoader("<dataset-id-or-name>", chunk_size=1500).load()
 ```
 
 ### Ready scrapers, without the grey zone
@@ -235,7 +250,7 @@ ww-scraper serve --max-runs 4              # at most 4 runs at once, the rest wa
 | `GET /v2/acts` | list actors with input schemas |
 | `POST /v2/acts/<name>/runs?waitForFinish=60&timeout=300` | start a run, body = input JSON |
 | `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop, `POST .../resurrect` to run a finished one again) |
-| `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html\|rss&fields=a,b&omit=c&flatten=1&unwind=d&desc=1&clean=1` | items (HTML served with `CSP: sandbox`) |
+| `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html\|rss\|chunks&fields=a,b&omit=c&flatten=1&unwind=d&desc=1&clean=1` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
 | `GET /v2/actor-runs/<id>/log` | the last 256 KB of the run log |
 | `POST /v2/acts/<name>/run-sync-get-dataset-items` | run, wait (up to 300 s) and return the items; takes the export options |

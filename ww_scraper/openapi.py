@@ -20,7 +20,9 @@ RUN_OPTS = [_p("timeout", typ="number", desc="seconds; the run ends TIMED-OUT af
             _p("checks", desc='JSON object of post-run checks, e.g. {"minItems": 1}'),
             _p("waitForFinish", typ="number", desc="wait up to this many seconds (max 300)"),
             _p("webhooks", desc="base64 JSON list of {requestUrl, eventTypes}")]
-VIEW = [_p("format", desc="json, jsonl, csv, xlsx, xml, html, rss"), _p("offset", typ="integer"),
+VIEW = [_p("format", desc="json, jsonl, csv, xlsx, xml, html, rss, chunks"),
+        _p("chunkSize", typ="integer", desc="chunks format: characters per chunk (default 2000)"),
+        _p("chunkOverlap", typ="integer", desc="chunks format: overlap in characters (default 200)"), _p("offset", typ="integer"),
         _p("limit", typ="integer"), _p("fields", desc="comma separated, dotted paths allowed"),
         _p("omit"), _p("flatten", typ="boolean"), _p("unwind"), _p("desc", typ="boolean"),
         _p("clean", typ="boolean"), _p("view", desc="a view from the dataset schema")]
