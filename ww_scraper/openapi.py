@@ -17,6 +17,7 @@ def _p(name, where="query", typ="string", desc=""):
 RUN_OPTS = [_p("timeout", typ="number", desc="seconds; the run ends TIMED-OUT after it"),
             _p("dataset", desc="also append the items to this named dataset"),
             _p("maxItems", typ="integer"), _p("maxRequests", typ="integer"), _p("maxBytes", typ="integer"),
+            _p("checks", desc='JSON object of post-run checks, e.g. {"minItems": 1}'),
             _p("waitForFinish", typ="number", desc="wait up to this many seconds (max 300)"),
             _p("webhooks", desc="base64 JSON list of {requestUrl, eventTypes}")]
 VIEW = [_p("format", desc="json, jsonl, csv, xlsx, xml, html, rss"), _p("offset", typ="integer"),

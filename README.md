@@ -90,6 +90,7 @@ ww-scraper serve                                      # local HTTP API, token re
 | Keep the disk from filling | `ww-scraper purge --older-than 30d` deletes old runs and their unnamed storages; named storages stay; `--dry-run` first |
 | A run that must not cost more than planned | `--max-items N`, `--max-requests N`, `--max-bytes N`: the run stops cleanly and SUCCEEDS with what it has |
 | A run that must not hang | `--timeout SECS` (or `"timeoutSecs"` in the input): the run ends TIMED-OUT and keeps what it stored |
+| Know when a scheduled run quietly broke | `--checks '{"minItems": 1, "fieldFillRate": {"email": 0.5}}'` (also on a task): the result is on the run record, the CLI exits 3 and webhooks get `ACTOR.RUN.CHECKS_FAILED` |
 
 How this compares with a hosted platform, including what it does not do:
 [docs/comparison.md](docs/comparison.md). The decisions behind it and the defects found on the

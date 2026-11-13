@@ -309,6 +309,9 @@ RUN_OPTIONS_SCHEMA = {
                         "description": "Stop cleanly after this many HTTP requests"},
         "maxBytes": {"type": "integer", "minimum": 1,
                      "description": "Stop cleanly after downloading this many bytes"},
+        "checks": {"type": "object",
+                   "description": "Conditions checked after the run, e.g. {\"minItems\": 1, "
+                                  "\"fieldFillRate\": {\"email\": 0.5}} (see ww_scraper/checks.py)"},
         "datasetName": {"type": "string", "maxLength": 64,
                         "description": "Also append this run's items to the named dataset, "
                                        "which is kept across runs and never purged"},
@@ -340,6 +343,9 @@ def split_options(actor, data, options=None, lang=None):
     clean = {k: v for k, v in opts.items() if v is not None}
     clean, errors = validate_input({"properties": RUN_OPTIONS_SCHEMA["properties"]}, clean, lang)
     clean = {k: v for k, v in clean.items() if k in opts}
+    if "checks" in clean:
+        from .checks import validate as validate_checks
+        errors += validate_checks(clean["checks"])
     if clean.get("datasetName"):
         try:
             check_name(clean["datasetName"])
@@ -759,12 +765,23 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
         rec["finishedAt"] = _now()
         rec["stats"] = dict(ctx.stats, durationMillis=int((time.monotonic() - t0) * 1000))
         rec["itemCount"] = ctx.dataset.count()
+        checks = (rec.get("options") or {}).get("checks")
+        if checks:
+            from .checks import evaluate
+            rec["checks"] = evaluate(checks, rec, ctx.dataset.iter_items())
         storage.save_run(rec)
     ctx.log.info(f"run {rec['id']} finished: {rec['status']} items={rec['itemCount']}")
+    for r in (rec.get("checks") or {}).get("results", []) if checks else []:
+        if not r["passed"]:
+            ctx.log.warning(f"check {r['check']} failed: expected {r['expected']}, got {r['actual']}")
     if webhooks:
         from .webhooks import dispatch
         for line in dispatch(rec, webhooks, allow_loopback=allow_loopback):
             ctx.log.info(line)
+        if checks and not rec["checks"]["passed"]:
+            for line in dispatch(rec, webhooks, allow_loopback=allow_loopback,
+                                 event="ACTOR.RUN.CHECKS_FAILED"):
+                ctx.log.info(line)
     return rec
 
 

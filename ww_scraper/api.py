@@ -7,7 +7,7 @@ address are refused (DNS-rebinding guard), browser requests carrying a non-loopb
 Origin are refused (CSRF guard), and POST bodies must be application/json.
 
     GET  /v2/acts
-    POST /v2/acts/<name>/runs[?waitForFinish=<s>&timeout=<s>&dataset=<name>&maxItems=<n>&webhooks=<base64 JSON>]   body = input
+    POST /v2/acts/<name>/runs[?waitForFinish=<s>&timeout=<s>&dataset=<name>&maxItems=<n>&checks=<JSON>&webhooks=<base64 JSON>]   body = input
     GET  /v2/actor-runs
     GET  /v2/actor-runs/<id>
     POST /v2/actor-runs/<id>/abort
@@ -527,6 +527,11 @@ class _Handler(BaseHTTPRequestHandler):
                     options[key] = int(q[key])
                 except ValueError:
                     raise ValueError(f"{key} must be a whole number") from None
+        if q.get("checks"):
+            try:
+                options["checks"] = json.loads(q["checks"])
+            except ValueError:
+                raise ValueError("checks must be a JSON object") from None
         return options
 
     def _task_post(self, path, q):

@@ -28,7 +28,7 @@ Source: [`ww_scraper/robots.py`](../ww_scraper/robots.py), [`ww_scraper/complian
 
 ## Run lifecycle
 
-A run validates its input against the actor schema, then moves READY, RUNNING and ends SUCCEEDED, FAILED, ABORTED or TIMED-OUT. An actor bug ends as FAILED and never crashes the host process. A stop request shows ABORTING, and a run past its `timeoutSecs` shows TIMING-OUT, until the actor stops; the items it stored are kept. `ctx.set_status_message()` writes progress to the run record while the run is going.
+A run validates its input against the actor schema, then moves READY, RUNNING and ends SUCCEEDED, FAILED, ABORTED or TIMED-OUT. An actor bug ends as FAILED and never crashes the host process. A stop request shows ABORTING, and a run past its `timeoutSecs` shows TIMING-OUT, until the actor stops; the items it stored are kept. `ctx.set_status_message()` writes progress to the run record while the run is going. A run may carry `checks` (minimum and maximum items, failures, duration, the share of items where a field is filled): they are evaluated once the run has ended, stored on the record as `checks`, and a failed check makes the CLI exit with code 3 and sends `ACTOR.RUN.CHECKS_FAILED` to webhooks. A check never changes the run's status.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="system-map/run-lifecycle-dark.svg">
