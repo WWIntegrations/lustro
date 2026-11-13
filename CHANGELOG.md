@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Markdown leaves out share bars (elements labelled as share tools, or made of links that
+  only post the page to a social network) and Cloudflare's obfuscated e-mail links
+  (`/cdn-cgi/l/email-protection`), which carry an encoded address. A class name alone
+  ("market-share") does not drop content.
+- `title` and `description` are decoded once more when the site double-escapes them
+  (`Q&amp;amp;A` in the source used to read `Q&amp;A`).
 - robots.txt that cannot be read because of the network (timeout, refused connection, DNS)
   is retried twice with backoff. If it still fails, the page is a recorded failure
   (`network: robots.txt not read: ConnectTimeout ...`, `stats.robotsUnread`), not a
