@@ -464,8 +464,30 @@ class Dataset:
     def count(self) -> int:
         return sum(1 for _ in self.iter_items())
 
+    # -- schema and views ---------------------------------------------------------------
+    @property
+    def schema_file(self) -> Path:
+        return self.path / "schema.json"
+
+    def set_schema(self, schema: dict) -> None:
+        atomic_write(self.schema_file, json.dumps(schema, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    def schema(self):
+        try:
+            return json.loads(self.schema_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def view(self, name: str) -> dict:
+        """Export options of a named view from the dataset's schema."""
+        views = (self.schema() or {}).get("views") or {}
+        if name not in views:
+            raise StorageError(f"unknown view: {name!r}" + (f" (views: {', '.join(views)})" if views else
+                                                           " (this dataset has no views)"))
+        return views[name]
+
     def export(self, fmt: str = "json", offset: int = 0, limit=None, fields=None, *,
-               omit=None, flatten=False, unwind=None, desc=False, clean=False):
+               omit=None, flatten=False, unwind=None, desc=False, clean=False, view=None):
         """Return (bytes, content_type) in json | jsonl | csv | xlsx | xml | html | rss.
         fields: keep only these keys (dotted paths reach into objects), in this order;
         omit: drop these keys or dotted paths; flatten: nested objects to dotted keys;
@@ -473,6 +495,14 @@ class Dataset:
         clean: drop '#hidden' keys and items left empty."""
         if fmt not in EXPORT_FORMATS:
             raise StorageError(f"unsupported format: {fmt!r} ({', '.join(EXPORT_FORMATS)})")
+        if view:                     # a named view supplies options not given explicitly
+            v = self.view(view)
+            fields = fields or v.get("fields")
+            omit = omit or v.get("omit")
+            flatten = flatten or bool(v.get("flatten"))
+            unwind = unwind or v.get("unwind")
+            desc = desc or bool(v.get("desc"))
+            clean = clean or bool(v.get("clean"))
         if desc:
             items = self.items()[::-1]
             items = items[offset:offset + limit if limit is not None else None]
@@ -558,7 +588,23 @@ class KeyValueStore:
             return data.decode("utf-8", "replace")
         return data
 
-    def keys(self) -> list:
+    def set_schema(self, schema: dict) -> None:
+        atomic_write(self.path / ".schema.json", json.dumps(schema, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    def schema(self):
+        try:
+            return json.loads((self.path / ".schema.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def keys(self, collection: str = None) -> list:
+        """Record keys; with collection, only those the store's schema puts in it."""
+        if collection is not None:
+            from .schema import collection_for
+            schema = self.schema() or {}
+            if collection not in (schema.get("collections") or {}):
+                raise StorageError(f"unknown collection: {collection!r}")
+            return [k for k in self.keys() if collection_for(schema, k)[0] == collection]
         if not self.path.is_dir():
             return []
         return sorted(p.name for p in self.path.iterdir() if p.is_file() and valid_key(p.name))

@@ -10,6 +10,7 @@ no availability, no image).
 from __future__ import annotations
 
 from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..schema import STR_OR_NULL
 from ._api import first, html_to_text
 from .structured_data import flatten_jsonld
 
@@ -143,6 +144,17 @@ def products_on_page(doc, page_url: str) -> list:
 
 class ProductCatalog(Actor):
     name = "product-catalog"
+    version = "1.1.0"
+    dataset_schema = {
+        "fields": {"type": "object", "required": ["name", "url", "pageUrl", "price", "currency", "availability", "issues"],
+                   "properties": {
+                       "name": STR_OR_NULL, "url": STR_OR_NULL, "pageUrl": {"type": "string"},
+                       "price": {"type": ["number", "null"]}, "lowPrice": {"type": ["number", "null"]},
+                       "highPrice": {"type": ["number", "null"]}, "currency": STR_OR_NULL,
+                       "availability": STR_OR_NULL, "issues": {"type": "array", "items": {"type": "string"}}}},
+        "views": {"overview": {"title": "Overview", "fields": ["name", "sku", "gtin", "brand", "price", "currency",
+                                                                "availability", "url"]}},
+    }
     title = "Product Catalog"
     description = ("Products, prices and availability from any shop that publishes schema.org data: "
                    "no per-shop selectors, duplicates removed, feed problems flagged.")

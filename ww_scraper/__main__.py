@@ -107,6 +107,7 @@ def _parser():
     e.add_argument("--unwind", default=None, metavar="FIELD", help="one row per element of this list field")
     e.add_argument("--desc", action="store_true", help="newest items first")
     e.add_argument("--clean", action="store_true", help="drop '#hidden' keys and empty items")
+    e.add_argument("--view", default=None, help="a view from the dataset's schema (e.g. overview)")
     e.add_argument("--out", default=None, help="write to this file (xlsx needs it unless stdout is redirected)")
     e.add_argument("--storage", default=None)
 
@@ -310,7 +311,7 @@ def main(argv=None) -> int:
         try:
             body, _ = Storage(a.storage).dataset(a.dataset).export(
                 a.format, fields=split(a.fields), omit=split(a.omit), flatten=a.flatten,
-                unwind=a.unwind, desc=a.desc, clean=a.clean)
+                unwind=a.unwind, desc=a.desc, clean=a.clean, view=a.view)
         except StorageError as e:
             print(str(e), file=sys.stderr)
             return 2

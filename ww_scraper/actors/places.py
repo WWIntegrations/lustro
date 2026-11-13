@@ -14,6 +14,7 @@ import time
 from urllib.parse import quote
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
+from ..schema import STR_OR_NULL
 from ._api import get_json
 
 ATTRIBUTION = "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)"
@@ -111,6 +112,25 @@ def normalise(el: dict) -> dict:
 class Places(Actor):
     ENDPOINTS = ENDPOINTS
     name = "places"
+    version = "1.1.0"
+    dataset_schema = {
+        "fields": {"type": "object", "required": ["name", "category", "osmId", "osmUrl", "license", "lat", "lon"],
+                   "properties": {
+                       "name": STR_OR_NULL, "category": STR_OR_NULL, "street": STR_OR_NULL, "houseNumber": STR_OR_NULL,
+                       "postcode": STR_OR_NULL, "city": STR_OR_NULL, "lat": {"type": ["number", "null"]},
+                       "lon": {"type": ["number", "null"]}, "phone": STR_OR_NULL, "email": STR_OR_NULL,
+                       "website": STR_OR_NULL, "openingHours": STR_OR_NULL, "osmUrl": {"type": "string"},
+                       "osmId": {"type": "string"}, "tags": {"type": "object"}, "license": {"type": "string"}}},
+        "views": {"overview": {"title": "Overview", "fields": ["name", "category", "street", "houseNumber", "postcode",
+                                                                "city", "website", "phone", "openingHours", "osmUrl"]}},
+    }
+    kv_schema = {"collections": {"summary": {"key": "OUTPUT", "contentTypes": ["application/json"],
+                                             "jsonSchema": {"type": "object", "required": ["results", "attribution"]}}}}
+    output_schema = {
+        "items": {"title": "Places", "template": "/v2/datasets/{defaultDatasetId}/items"},
+        "overview": {"title": "Overview (CSV)", "template": "/v2/datasets/{defaultDatasetId}/items?view=overview&format=csv"},
+        "summary": {"title": "Summary (OUTPUT)", "template": "/v2/key-value-stores/{defaultKeyValueStoreId}/records/OUTPUT"},
+    }
     title = "Places (OpenStreetMap)"
     description = ("Businesses and points of interest by category and area from OpenStreetMap: name, "
                    "address, coordinates, website, opening hours. Open data you may reuse (ODbL).")

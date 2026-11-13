@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 from ..actor import MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
 from ..compliance import _EMAIL_RE, _PHONE_RE, _phone_sub, redact_obj
+from ..schema import STR_OR_NULL
 from ..schema_types import is_organization_type
 from ..storage import MemoryRequestQueue
 from .structured_data import flatten_jsonld
@@ -72,6 +73,23 @@ def _clean_phone(raw: str) -> str:
 
 class ContactDetails(Actor):
     name = "contact-details"
+    version = "1.1.0"
+    dataset_schema = {
+        "fields": {"type": "object", "required": ["startUrl", "emails", "phones", "socialProfiles", "pagesRead"],
+                   "properties": {
+                       "startUrl": {"type": "string"}, "organization": STR_OR_NULL, "legalName": STR_OR_NULL,
+                       "vatId": STR_OR_NULL, "address": STR_OR_NULL,
+                       "emails": {"type": "array", "items": {"type": "object", "required": ["address", "role"],
+                                                              "properties": {"address": {"type": "string"},
+                                                                             "role": {"type": "boolean"}}}},
+                       "phones": {"type": "array", "items": {"type": "object", "required": ["number"]}},
+                       "socialProfiles": {"type": "object"}, "pagesRead": {"type": "array", "items": {"type": "string"}},
+                       "maskedPersonalEmails": {"type": "integer", "minimum": 0},
+                       "maskedTextPhones": {"type": "integer", "minimum": 0}}},
+        "views": {"overview": {"title": "Overview", "flatten": True,
+                               "fields": ["startUrl", "organization", "vatId", "address", "socialProfiles.linkedin",
+                                          "socialProfiles.facebook", "socialProfiles.instagram"]}},
+    }
     title = "Contact Details"
     description = ("E-mails, phone numbers, social profiles and address an organisation publishes on "
                    "its own website. Role addresses kept, personal ones masked by default (GDPR).")
