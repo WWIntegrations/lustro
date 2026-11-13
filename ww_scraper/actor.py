@@ -227,6 +227,7 @@ RUN_OPTIONS_SCHEMA = {
     },
 }
 STATUS_MESSAGE_MAX = 500
+MAX_CALL_DEPTH = 4               # ctx.call_actor() nesting: a run calling itself stops here
 
 # run id -> RunContext of every run executing in this process (for abort requests)
 _LIVE: dict = {}
@@ -323,6 +324,7 @@ class RunContext:
         self.session = PoliteSession(MIN_INTERVAL_FLOOR)
         self.abort_event = abort_event or threading.Event()
         self.parent = parent
+        self.depth = parent.depth + 1 if parent is not None else 0
         self.record = record if record is not None else {"id": run_id}
         self.timed_out = False
         self.deadline = None             # time.monotonic() value, or None
@@ -339,6 +341,38 @@ class RunContext:
     def check_abort(self):
         if self.aborted:
             raise RunAborted("run timed out" if self.timed_out else "run aborted")
+
+    @property
+    def timed_out_chain(self) -> bool:
+        """This run, or a run that called it, ran out of time."""
+        return self.timed_out or (self.parent is not None and self.parent.timed_out_chain)
+
+    def call_actor(self, name, input=None, *, options=None, timeout_secs=None) -> dict:
+        """Run another actor now, in this process, and return its final run record.
+
+        The called run gets its own run id and unnamed storages (read its items with
+        ctx.storage.dataset(rec["defaultDatasetId"])), the same loopback switch and log
+        stream, and never outlives this run's timeout. Aborting this run stops it too.
+        A called run that fails is returned, not raised: check rec["status"]."""
+        self.check_abort()
+        if self.depth + 1 > MAX_CALL_DEPTH:
+            raise RuntimeError(f"call_actor: nesting deeper than {MAX_CALL_DEPTH} runs")
+        if timeout_secs is not None:
+            options = dict(options or {}, timeoutSecs=timeout_secs)
+        rec = prepare_run(name, input, self.storage, options=options)
+        rec["parentRunId"] = self.run_id
+        self.storage.save_run(rec)
+        with self._rec_lock:
+            self.record.setdefault("childRunIds", []).append(rec["id"])
+        self.log.info(f"call {rec['actId']}: run {rec['id']} started")
+        rec = execute_run(rec, self.storage, allow_loopback=self.allow_loopback,
+                          log_stream=self.log_stream, parent=self)
+        self.stats["calledRuns"] = self.stats.get("calledRuns", 0) + 1
+        self.log.info(f"call {rec['actId']}: run {rec['id']} {rec['status']} items={rec['itemCount']}"
+                      + (f" ({rec['statusMessage']})" if rec["status"] != "SUCCEEDED" else ""))
+        self._save_record()
+        self.check_abort()           # this run's own timeout or abort wins over carrying on
+        return rec
 
     @property
     def remaining_secs(self):
@@ -502,7 +536,7 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
     except (RunAborted, KeyboardInterrupt):
         status = "ABORTED"
     except Exception as e:  # an actor bug must end as FAILED, never crash the host
-        if ctx.timed_out:
+        if ctx.timed_out_chain:
             status = "ABORTED"   # the timeout cut a request short; report it as the timeout
         else:
             status = "FAILED"
@@ -515,9 +549,9 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
             _LIVE.pop(rec["id"], None)
     if status == "ABORTED":
         last = rec.get("statusMessage") or ""
-        if ctx.timed_out:
+        if ctx.timed_out_chain:
             status = "TIMED-OUT"
-            rec["statusMessage"] = (f"timed out after {timeout:g} s"
+            rec["statusMessage"] = (f"timed out after {timeout or 0:g} s"
                                     + (f" (last status: {last})" if last else ""))[:STATUS_MESSAGE_MAX]
         else:
             rec["statusMessage"] = "aborted"

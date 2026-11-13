@@ -24,7 +24,7 @@ right-hand column lists only what such platforms publicly offer as their core se
 | Proxies, IP rotation, CAPTCHA solving, anti-bot evasion | **no, by design** | offered as products |
 | Private-network safety (SSRF) | every hop and every browser connection validated | not applicable to a cloud runner |
 | Personal data | e-mail and phone numbers masked by default | the operator's choice |
-| Ready scrapers | fifteen built-in actors, including jobs (three ATS APIs plus any careers page), places (OpenStreetMap), product catalogs and contact details, each built on official endpoints or published structured data | thousands, many maintained by third parties |
+| Ready scrapers | seventeen built-in actors, including jobs (three ATS APIs plus any careers page), places (OpenStreetMap), product catalogs and contact details, each built on official endpoints or published structured data | thousands, many maintained by third parties |
 | Scale | one machine | many machines |
 
 ## Measured, not claimed
