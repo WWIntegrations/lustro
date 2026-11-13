@@ -7,7 +7,8 @@ flagged in `issues`.
 """
 from __future__ import annotations
 
-from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..actor import (Actor, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS,
+                     WAIT_FOR)
 from ..schema import STR_OR_NULL
 from ._api import first, html_to_text
 from .product_catalog import _name, _types, _url
@@ -130,6 +131,8 @@ class Articles(Actor):
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
             "render": RENDER,
+            "waitForSelector": WAIT_FOR,
+            "browserActions": BROWSER_ACTIONS,
             "redactPii": REDACT,
         },
     }

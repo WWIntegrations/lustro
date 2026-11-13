@@ -182,10 +182,11 @@ function fieldFor(key, spec, required) {
     read = () => input.checked;
     return { node: el("div", { class: "field check" }, el("label", { for: id }, input, title), hint), read, key };
   }
-  if (type === "string" && Array.isArray(spec.enum)) {
-    input = el("select", { id }, spec.enum.map((v) => el("option", { value: String(v), text: String(v),
-      selected: v === start })));
-    read = () => input.value;
+  if (Array.isArray(spec.enum) && (type === "string" || !type)) {
+    // options keep their index, so true/false/"auto" come back with their own JSON type
+    input = el("select", { id }, spec.enum.map((v, i) => el("option", { value: String(i),
+      text: v === "" ? "(none)" : String(v), selected: v === start })));
+    read = () => spec.enum[Number(input.value)];
   } else if (type === "integer" || type === "number") {
     input = el("input", { type: "number", id, min: spec.minimum, max: spec.maximum,
       step: type === "integer" ? "1" : "any", placeholder: spec.default ?? "" });
@@ -309,6 +310,18 @@ async function download(rec, fmt) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+// a screenshot an actor stored in this run's key-value store: fetched with the token and
+// shown from a blob: URL; any other value stays text
+const SHOT_PATH = /^\/v2\/key-value-stores\/[A-Za-z0-9._~-]+\/records\/screenshot-[0-9a-f]{16}\.(png|jpg)$/;
+
+function thumbnail(path) {
+  const img = el("img", { class: "thumb", alt: "screenshot", loading: "lazy", width: "160" });
+  api(path).then((r) => (r.ok ? r.blob() : null)).then((b) => {
+    if (b && /^image\/(png|jpeg)$/.test(b.type)) img.src = URL.createObjectURL(b);
+  }).catch(() => {});
+  return img;
+}
+
 function itemsTable(items) {
   const cols = [];
   for (const it of items) {
@@ -318,6 +331,7 @@ function itemsTable(items) {
     el("thead", {}, el("tr", {}, cols.map((c) => el("th", { text: c })))),
     el("tbody", {}, items.map((it) => el("tr", {}, cols.map((c) => {
       const v = it ? it[c] : undefined;
+      if (c === "screenshotUrl" && typeof v === "string" && SHOT_PATH.test(v)) return el("td", {}, thumbnail(v));
       return el("td", {}, safeLink(v) || cellText(v));
     }))))));
 }

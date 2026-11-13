@@ -3,7 +3,8 @@ JSON-LD objects (flattened out of @graph), Open Graph and Twitter card tags. Rep
 JSON-LD blocks that failed to parse and the schema.org types missing a name."""
 from __future__ import annotations
 
-from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..actor import (Actor, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS,
+                     WAIT_FOR)
 
 MAX_OBJECTS_PER_PAGE = 100
 
@@ -53,6 +54,8 @@ class StructuredData(Actor):
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
             "render": RENDER,
+            "waitForSelector": WAIT_FOR,
+            "browserActions": BROWSER_ACTIONS,
             "redactPii": REDACT,
         },
     }

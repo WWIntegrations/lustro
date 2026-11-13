@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from urllib.parse import unquote, urlsplit
 
-from ..actor import MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..actor import Actor, BROWSER_ACTIONS, MIN_INTERVAL, REDACT, RENDER, START_URLS, WAIT_FOR
 from ..compliance import _EMAIL_RE, _PHONE_RE, _phone_sub, redact_obj
 from ..schema import STR_OR_NULL
 from ..schema_types import is_organization_type
@@ -103,6 +103,8 @@ class ContactDetails(Actor):
                              "description": "Besides the start page, read linked pages matching one of these globs"},
             "minIntervalSecs": MIN_INTERVAL,
             "render": RENDER,
+            "waitForSelector": WAIT_FOR,
+            "browserActions": BROWSER_ACTIONS,
             "redactPii": REDACT,
         },
     }

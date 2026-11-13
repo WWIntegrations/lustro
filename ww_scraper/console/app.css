@@ -86,3 +86,4 @@ svg.chart .day:focus{outline:none}
 .s-ABORTED{fill:var(--s-warning);background:var(--s-warning)}
 .s-OTHER{fill:var(--s-other);background:var(--s-other)}
 details summary{cursor:pointer;color:var(--muted);margin:4px 0 8px}
+img.thumb{display:block;max-width:160px;height:auto;border:1px solid var(--line);border-radius:4px}

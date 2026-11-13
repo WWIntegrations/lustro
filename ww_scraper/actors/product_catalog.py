@@ -9,7 +9,8 @@ no availability, no image).
 """
 from __future__ import annotations
 
-from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..actor import (Actor, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS,
+                     WAIT_FOR)
 from ..schema import STR_OR_NULL
 from ._api import first, html_to_text
 from .structured_data import flatten_jsonld
@@ -173,6 +174,8 @@ class ProductCatalog(Actor):
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
             "render": RENDER,
+            "waitForSelector": WAIT_FOR,
+            "browserActions": BROWSER_ACTIONS,
             "redactPii": REDACT,
         },
     }

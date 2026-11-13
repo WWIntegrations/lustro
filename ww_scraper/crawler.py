@@ -56,6 +56,7 @@ class FetchResult:
     elapsed_ms: int = 0
     rendered: bool = False     # body is the DOM after scripts ran (UTF-8)
     duplicate: bool = False    # a redirect led to a page the crawl already has (not fetched)
+    artifacts: dict = field(default_factory=dict)   # {"screenshotKey", "pdfKey"} in the run's KV store
 
     @property
     def ok(self) -> bool:
@@ -170,9 +171,15 @@ class PoliteCrawler:
         self._streak: dict = {}
         self._pace_lock = threading.Lock()
         self.default_concurrency = 1
-        self.render = False          # True: HTML pages are re-read through headless Chrome
+        self.render = False          # True: HTML pages are re-read through headless Chrome;
+        #                              "auto": only pages that look script-built (see needs_render)
         self.render_wait_ms = 3000
         self.accept_language = ""    # passed to the browser too, so a render keeps the language
+        # waitForSelector, actions, screenshot ("viewport"/"fullPage"), format, pdf: any of them
+        # switches rendering to the DevTools pipe (render.render_page)
+        self.browser: dict = {}
+        self._auto: dict = {}         # host -> [pages rendered by "auto", renders that helped]
+        self._auto_lock = threading.Lock()
         # url -> {"etag", "lastModified"}: GETs of these URLs are conditional, a 304 is "unchanged"
         self.validators: dict = {}
         # url -> links seen the last time: followed when the page answers 304 (no body to parse)
@@ -377,7 +384,7 @@ class PoliteCrawler:
                             return res
                     res.body = bytes(buf)
                     self._inc("bytes", len(buf))
-                    if self.render and res.ok and res.is_html:
+                    if self.render and res.ok and res.is_html and self._should_render(res):
                         self._render_into(res)
                 return res
             finally:
@@ -386,23 +393,76 @@ class PoliteCrawler:
         res.error = "too-many-redirects"
         return res
 
+    AUTO_PROBE = 3          # "auto": renders per host before deciding whether they help
+
+    def _should_render(self, res) -> bool:
+        """True for render=True. For "auto", only pages whose raw HTML looks script-built,
+        and a host stops being rendered after AUTO_PROBE renders that added no text."""
+        if self.render is not True and self.render != "auto":
+            return False
+        if self.render is True:
+            return True
+        from .render import needs_render
+        host = urlparse(res.final_url or res.url).hostname or ""
+        with self._auto_lock:
+            tried, helped = self._auto.get(host, (0, 0))
+        if tried >= self.AUTO_PROBE and not helped:
+            self._inc("renderSkipped")
+            return False
+        if not needs_render(res.text()):
+            self._inc("renderSkipped")
+            return False
+        return True
+
     def _render_into(self, res) -> None:
         """Replace the body with the DOM after scripts ran. The page URL already passed
         the SSRF and robots.txt gates above; the browser's own requests go through the
         filtering proxy (ww_scraper/proxy.py), which refuses private addresses."""
-        from .render import RenderError, render_dom
+        import hashlib
+
+        from .render import RenderError, render_dom, render_page, visible_words
         host = urlparse(res.final_url).hostname or ""
         self.session.limiter.wait(host)          # the render is a second visit: space it
         self._inc("requests")
+        before = visible_words(res.text()) if self.render == "auto" else 0
+        b = self.browser or {}
+        shot_fmt = b.get("format") or "png"
         try:
-            html = render_dom(res.final_url, allow_loopback=self.allow_loopback,
-                              wait_ms=self.render_wait_ms, max_bytes=self.max_bytes,
-                              accept_language=self.accept_language)
+            if any(b.get(k) for k in ("waitForSelector", "actions", "screenshot", "pdf")):
+                out = render_page(res.final_url, allow_loopback=self.allow_loopback,
+                                  wait_ms=self.render_wait_ms, max_bytes=self.max_bytes,
+                                  wait_for=b.get("waitForSelector") or None, actions=b.get("actions") or None,
+                                  screenshot=b.get("screenshot") or None, image_format=shot_fmt,
+                                  pdf=bool(b.get("pdf")),
+                                  accept_language=self.accept_language)
+                html = out.html
+                for note in out.notes:
+                    if self.log:
+                        self.log.info(f"render {res.final_url}: {note}")
+                if self.ctx is not None and (out.screenshot or out.pdf):
+                    stem = hashlib.sha256(res.final_url.encode("utf-8")).hexdigest()[:16]
+                    if out.screenshot:
+                        key = f"screenshot-{stem}.{'jpg' if shot_fmt == 'jpeg' else 'png'}"
+                        self.ctx.kv.set(key, out.screenshot, f"image/{shot_fmt}")
+                        res.artifacts["screenshotKey"] = key
+                        self._inc("screenshots")
+                    if out.pdf:
+                        key = f"page-{stem}.pdf"
+                        self.ctx.kv.set(key, out.pdf, "application/pdf")
+                        res.artifacts["pdfKey"] = key
+            else:
+                html = render_dom(res.final_url, allow_loopback=self.allow_loopback,
+                                  wait_ms=self.render_wait_ms, max_bytes=self.max_bytes,
+                                  accept_language=self.accept_language)
         except RenderError as e:
             self._inc("renderFailed")
             if self.log:
                 self.log.warning(f"render failed for {res.final_url}: {e}; using the raw HTML")
             return
+        if self.render == "auto":
+            with self._auto_lock:
+                tried, helped = self._auto.get(host, (0, 0))
+                self._auto[host] = (tried + 1, helped + (visible_words(html) > before + 20))
         res.body = html.encode("utf-8")
         res.rendered = True
         self._inc("rendered")

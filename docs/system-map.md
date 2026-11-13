@@ -50,7 +50,7 @@ Source: [`ww_scraper/storage.py`](../ww_scraper/storage.py), [`tests/test_storag
 
 ## JavaScript rendering behind a filtering proxy
 
-With render turned on, a page that passed the crawler's gates is opened in a local headless Chrome. Every connection the browser makes goes through a loopback proxy that refuses private addresses, so a hostile page cannot use the browser to read your network.
+With render turned on, a page that passed the crawler's gates is opened in a local headless Chrome. Every connection the browser makes goes through a loopback proxy that refuses private addresses, so a hostile page cannot use the browser to read your network. When a run asks to wait for a selector, to click or scroll, or for screenshots and PDFs, the browser is driven over the DevTools pipe (`--remote-debugging-pipe`, no port), with the same flags and proxy. `"render": "auto"` renders only pages whose HTML looks built by scripts and stops for a host after three renders that added no text.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="system-map/render-dark.svg">
@@ -81,7 +81,7 @@ init writes a working actor file. run loads it from the command line and gives i
 
 Source: [`ww_scraper/plugins.py`](../ww_scraper/plugins.py), [`ww_scraper/__main__.py`](../ww_scraper/__main__.py), [`tests/test_plugins_report.py`](../tests/test_plugins_report.py)
 
-## Twenty actors, one crawler
+## Twenty-one actors, one crawler
 
 All actors run through the same run context and crawler, so the compliance gates apply to each of them. An actor can also run another one with `ctx.call_actor()`: `lead-list` runs `places` and then `contact-details`, and `pipeline` chains any actors. A called run has its own storages and stays inside the caller's timeout.
 
