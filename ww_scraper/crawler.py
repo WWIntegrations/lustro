@@ -312,6 +312,11 @@ class PoliteCrawler:
             self._host_setup(urlparse(current).hostname or "")
             allowed, why = self.robots.allowed(current)
             if not allowed:
+                if self.robots.get(current).status == "network-error":
+                    # robots.txt could not be read: a failure to retry later, not a refusal
+                    self._inc("robotsUnread")
+                    res.final_url, res.error = current, f"network: {why}"
+                    return res
                 self._inc("robotsBlocked")
                 res.final_url, res.error, res.blocked = current, f"robots: {why}", True
                 return res
@@ -346,6 +351,8 @@ class PoliteCrawler:
                 res.content_type = (res.headers.get("content-type") or "").split(";")[0].strip().lower()
                 if accept_types is not None and res.content_type not in accept_types:
                     res.error = f"content-type: {res.content_type or 'none'}"
+                    if resp.status_code >= 400:          # the status is the news, not the type
+                        res.error = f"HTTP {resp.status_code} ({res.error})"
                     return res
                 if read_body and method != "HEAD":
                     clen = res.headers.get("content-length", "")

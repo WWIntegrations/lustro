@@ -236,3 +236,39 @@ def test_job_postings_records_a_missing_careers_page(site, storage):
     rec, items, kv = _run(storage, "job-postings", {"boards": [site.base + "/missing"]})
     assert rec["stats"]["failed"] >= 1
     assert any(f["reason"] == "HTTP 404" for f in kv.get("FAILED_REQUESTS"))
+
+
+def test_unread_robots_txt_is_a_failure_not_a_robots_block(site, storage, monkeypatch):
+    import requests
+    from ww_scraper.compliance import RobotsCache
+    monkeypatch.setattr(RobotsCache, "network_backoff", 0)
+    real = RobotsCache._fetch_once
+
+    def no_network(self, origin):
+        from ww_scraper.compliance import RobotsEntry
+        return RobotsEntry("network-error", reason=requests.ConnectTimeout.__name__)
+    monkeypatch.setattr(RobotsCache, "_fetch_once", no_network)
+    rec = run_actor("website-content-crawler", {"startUrls": [site.base + "/about"],
+                    "minIntervalSecs": 0}, storage, allow_loopback=True)
+    monkeypatch.setattr(RobotsCache, "_fetch_once", real)
+    assert rec["stats"]["robotsBlocked"] == 0 and rec["stats"]["robotsUnread"] == 1
+    fail = storage.kv(rec["id"]).get("FAILED_REQUESTS")[0]["reason"]
+    assert fail.startswith("network: robots.txt not read: ConnectTimeout")
+
+
+def test_status_code_comes_before_content_type_in_the_error(site, storage):
+    rec, items, kv = _run(storage, "website-content-crawler", {"startUrls": [site.base + "/paywall"]})
+    assert kv.get("FAILED_REQUESTS")[0]["reason"].startswith("HTTP 402")
+
+
+def test_start_urls_accept_url_objects(site, storage):
+    rec, items, kv = _run(storage, "website-content-crawler",
+                          {"startUrls": [{"url": site.base + "/about"}], "maxDepth": 0})
+    assert [i["url"] for i in items] == [site.base + "/about"]
+
+
+def test_accept_language_rejects_header_injection(storage):
+    from ww_scraper.actor import InputError
+    with pytest.raises(InputError, match="acceptLanguage"):
+        run_actor("website-content-crawler", {"startUrls": ["https://example.com/"],
+                  "acceptLanguage": "en\r\nX-Evil: 1"}, storage)

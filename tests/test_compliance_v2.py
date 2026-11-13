@@ -155,3 +155,39 @@ def test_loopback_exception_only_with_switch():
     # embedded IPv4 follows the same policy, and the switch never covers names
     assert check_target("http://[::ffff:127.0.0.1]/", allow_loopback=True)
     assert check_target("http://[64:ff9b::a9fe:a9fe]/")  # NAT64 of 169.254.169.254
+
+
+class _FlakySession:
+    """Passes requests to a real session after failing the first `fail` of them."""
+
+    def __init__(self, fail):
+        import requests
+        self.real, self.fail, self.calls, self.exc = make_session(0), fail, 0, requests.ConnectTimeout
+
+    def get(self, *a, **kw):
+        self.calls += 1
+        if self.calls <= self.fail:
+            raise self.exc("simulated")
+        return self.real.get(*a, **kw)
+
+
+def test_robots_network_error_is_retried_before_giving_up(site):
+    rc = RobotsCache(_FlakySession(fail=2), allow_loopback=True)
+    rc.network_backoff = 0
+    assert rc.allowed(site.base + "/about") == (True, "")
+    assert rc.get(site.base + "/").status == "ok"
+
+
+def test_robots_network_error_is_not_a_refusal_and_expires(site):
+    s = _FlakySession(fail=99)
+    rc = RobotsCache(s, allow_loopback=True)
+    rc.network_backoff = 0
+    ok, why = rc.allowed(site.base + "/about")
+    entry = rc.get(site.base + "/")
+    assert not ok and entry.status == "network-error"
+    assert "ConnectTimeout" in why and "not a refusal" in why and "HTTP 0" not in why
+    assert s.calls == 1 + rc.network_retries
+    rc.allowed(site.base + "/about")                    # cached: no new request
+    assert s.calls == 1 + rc.network_retries
+    rc.network_ttl, s.fail = 0, 0                        # expired and the network is back
+    assert rc.allowed(site.base + "/about") == (True, "")

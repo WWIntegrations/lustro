@@ -291,17 +291,24 @@ def origin_of(url: str) -> str:
 
 
 class RobotsEntry:
-    """Parsed robots.txt for one origin. status: ok | missing | denied | unreachable."""
+    """Parsed robots.txt for one origin.
 
-    def __init__(self, status: str, parser=None, http_status: int = 0):
+    status: ok | missing | denied | unreachable | network-error. network-error means the
+    file could not be read at all (timeout, refused connection, DNS); it is not a refusal
+    by the site, it carries the cause in reason and it expires so a later request asks again.
+    """
+
+    def __init__(self, status: str, parser=None, http_status: int = 0, reason: str = ""):
         self.status = status
         self.parser = parser
         self.http_status = http_status
+        self.reason = reason
+        self.created = time.monotonic()
 
     def allowed(self, url: str, user_agent: str = USER_AGENT) -> bool:
         if self.status == "missing":
             return True
-        if self.status in ("denied", "unreachable") or self.parser is None:
+        if self.status in ("denied", "unreachable", "network-error") or self.parser is None:
             return False
         return self.parser.can_fetch(user_agent, url)
 
@@ -326,9 +333,18 @@ class RobotsCache:
     (polite) session. Every hop of the robots.txt fetch passes the SSRF check.
 
     Interpretation (conservative): 2xx -> rules apply; 401/403 -> everything disallowed;
-    other 4xx -> no robots.txt, everything allowed; 5xx or network error -> host treated
-    as unavailable (disallowed). When it is not clearly permitted, ww-scraper does not fetch.
+    other 4xx -> no robots.txt, everything allowed; 5xx -> host treated as unavailable
+    (disallowed). A network error (timeout, refused connection, DNS) is retried twice with
+    backoff; if it persists the host is skipped as "network-error", which is reported as a
+    failure, not as a robots.txt refusal, and asked again after network_ttl seconds. When
+    it is not clearly permitted, ww-scraper does not fetch.
     """
+
+    # a robots.txt that could not be read for network reasons is tried again: up to
+    # network_retries more times right away (with backoff), then again after network_ttl
+    network_retries = 2
+    network_backoff = 1.0
+    network_ttl = 60.0
 
     def __init__(self, session, allow_loopback: bool = False, timeout: float = 15,
                  max_bytes: int = 512 * 1024, on_fetch=None):
@@ -346,15 +362,19 @@ class RobotsCache:
         with self._lock:
             entry = self._cache.get(origin)
             gate = self._fetching.setdefault(origin, threading.Lock())
-        if entry is None:
+        if entry is None or self._expired(entry):
             with gate:                      # concurrent crawls: one robots.txt request per origin
                 with self._lock:
                     entry = self._cache.get(origin)
-                if entry is None:
+                if entry is None or self._expired(entry):
                     entry = self._fetch(origin)
                     with self._lock:
                         self._cache[origin] = entry
         return entry
+
+    def _expired(self, entry: RobotsEntry) -> bool:
+        return (entry.status == "network-error"
+                and time.monotonic() - entry.created >= self.network_ttl)
 
     def allowed(self, url: str):
         """(allowed: bool, reason: str)."""
@@ -363,20 +383,39 @@ class RobotsCache:
             return True, ""
         if entry.status == "ok":
             return False, "disallowed by robots.txt"
-        return False, f"robots.txt {entry.status} (HTTP {entry.http_status})"
+        if entry.status == "network-error":
+            return False, f"robots.txt not read: {entry.reason} (network error, not a refusal)"
+        detail = f"HTTP {entry.http_status}" if entry.http_status else (entry.reason or "no answer")
+        return False, f"robots.txt {entry.status} ({detail})"
 
     def _fetch(self, origin: str) -> RobotsEntry:
+        entry = self._fetch_once(origin)
+        for i in range(self.network_retries):
+            if entry.status != "network-error":
+                break
+            time.sleep(self.network_backoff * (2 ** i))
+            entry = self._fetch_once(origin)
+        return entry
+
+    def _fetch_once(self, origin: str) -> RobotsEntry:
         current = origin + "/robots.txt"
         if self.on_fetch:
             self.on_fetch(origin)
         for _ in range(5):
-            if check_target(current, self.allow_loopback):
-                return RobotsEntry("unreachable")
+            blocked = check_target(current, self.allow_loopback)
+            if blocked == "unresolvable host":
+                return RobotsEntry("network-error", reason="DNS: unresolvable host")
+            if blocked:
+                return RobotsEntry("unreachable", reason=blocked)
             try:
                 resp = self.session.get(current, stream=True, allow_redirects=False,
                                         timeout=self.timeout)
-            except (requests.RequestException, SSRFBlocked):
-                return RobotsEntry("unreachable")
+            except SSRFBlocked as e:
+                if str(e) == "unresolvable host":
+                    return RobotsEntry("network-error", reason="DNS: unresolvable host")
+                return RobotsEntry("unreachable", reason=str(e))
+            except requests.RequestException as e:
+                return RobotsEntry("network-error", reason=type(e).__name__)
             try:
                 code = resp.status_code
                 if code in _REDIRECT_CODES and resp.headers.get("Location"):
@@ -392,7 +431,7 @@ class RobotsCache:
             finally:
                 resp.close()
             return RobotsEntry("ok", RobotsRules(raw.decode("utf-8", "replace")), code)
-        return RobotsEntry("unreachable")
+        return RobotsEntry("unreachable", reason="too many redirects")
 
 
 def _read_capped(resp, max_bytes: int) -> bytes:
