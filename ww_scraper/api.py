@@ -7,7 +7,7 @@ address are refused (DNS-rebinding guard), browser requests carrying a non-loopb
 Origin are refused (CSRF guard), and POST bodies must be application/json.
 
     GET  /v2/acts
-    POST /v2/acts/<name>/runs[?waitForFinish=<s>&webhooks=<base64 JSON>]   body = input
+    POST /v2/acts/<name>/runs[?waitForFinish=<s>&timeout=<s>&webhooks=<base64 JSON>]   body = input
     GET  /v2/actor-runs
     GET  /v2/actor-runs/<id>
     POST /v2/actor-runs/<id>/abort
@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .actor import InputError, execute_run, prepare_run
+from .actor import InputError, execute_run, prepare_run, request_abort
 from .actors import ACTORS, get_actor
 from .compliance import is_loopback_host
 from .storage import Storage, StorageError, valid_id, valid_key
@@ -50,7 +50,7 @@ CONSOLE_FILES = {"/console": ("index.html", "text/html; charset=utf-8"),
                  "/console/app.css": ("app.css", "text/css; charset=utf-8")}
 CONSOLE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
                "img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-LIVE_STATUSES = ("READY", "RUNNING")
+LIVE_STATUSES = ("READY", "RUNNING", "ABORTING", "TIMING-OUT")
 
 
 class _Server(ThreadingHTTPServer):
@@ -99,8 +99,9 @@ class ScraperAPI:
         self.httpd.shutdown()
         self.httpd.server_close()
 
-    def start_run(self, actor, input, run_id=None, webhooks=None):
-        rec = prepare_run(actor, input, self.storage, run_id=run_id, lang=self.lang)
+    def start_run(self, actor, input, run_id=None, webhooks=None, options=None):
+        rec = prepare_run(actor, input, self.storage, run_id=run_id, lang=self.lang,
+                          options=options)
         abort = threading.Event()
         t = threading.Thread(target=execute_run, args=(rec, self.storage), daemon=True,
                              kwargs={"allow_loopback": self.allow_loopback,
@@ -258,7 +259,8 @@ class _Handler(BaseHTTPRequestHandler):
             entry = self.ctx.runs.get(m.group(1))
             if not entry:
                 return self._error(404, "not-found", "no active run with this id")
-            entry[1].set()
+            if not request_abort(m.group(1)):    # not started yet: the event stops it at once
+                entry[1].set()
             entry[0].join(10)
             return self._json(200, {"data": self.ctx.storage.load_run(m.group(1))})
         m = re.fullmatch(r"/v2/acts/([^/]+)/runs", path)
@@ -286,8 +288,14 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError
             except (ValueError, TypeError):
                 return self._error(400, "invalid-request", "webhooks must be base64 JSON list")
+        options = {}
+        if q.get("timeout"):
+            try:
+                options["timeoutSecs"] = float(q["timeout"])
+            except ValueError:
+                return self._error(400, "invalid-request", "timeout must be a number of seconds")
         try:
-            rec = self.ctx.start_run(actor.name, data, webhooks=webhooks)
+            rec = self.ctx.start_run(actor.name, data, webhooks=webhooks, options=options)
         except InputError as e:
             return self._json(400, {"error": {"type": "invalid-input", "message": str(e),
                                               "errors": e.errors}})

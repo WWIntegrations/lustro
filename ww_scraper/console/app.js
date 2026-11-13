@@ -9,7 +9,7 @@ const STAT_LABELS = [["items", "items"], ["pages", "pages parsed"], ["requests",
   ["ssrfBlocked", "refused by SSRF guard"], ["failed", "failed"], ["rendered", "rendered"],
   ["bytes", "bytes read"], ["durationMillis", "ms"]];
 const FORMATS = ["json", "jsonl", "csv", "xlsx", "xml", "html"];
-const LIVE = new Set(["READY", "RUNNING"]);
+const LIVE = new Set(["READY", "RUNNING", "ABORTING", "TIMING-OUT"]);
 const MAX_ITEMS = 100, MAX_COLUMNS = 12, MAX_CELL = 180, POLL_MS = 2000;
 
 let token = "";
@@ -294,8 +294,8 @@ async function runView(id) {
     el("p", {}, el("a", { href: "#/runs", text: "All runs" })),
     el("div", { class: "row" }, el("h1", {}, el("code", { text: rec.actId || "" })), pill(rec.status), abort),
     el("p", { class: "sub" }, "Run ", el("code", { text: rec.id }), " · created " + fmtTime(rec.createdAt),
-      rec.finishedAt ? " · finished " + fmtTime(rec.finishedAt) : "",
-      rec.statusMessage ? " · " + rec.statusMessage : ""),
+      rec.finishedAt ? " · finished " + fmtTime(rec.finishedAt) : ""),
+    rec.statusMessage ? el("p", { class: "status-message", id: "status-message", text: rec.statusMessage }) : null,
     el("div", { class: "grid", id: "stats" },
       live ? el("div", { class: "tile" }, el("b", { text: String(rec.itemCount ?? 0) }), el("span", { text: "items so far" })) : null,
       STAT_LABELS.filter(([k]) => k in stats).map(([k, label]) =>

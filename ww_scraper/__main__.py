@@ -1,6 +1,6 @@
 """CLI.
 
-    ww-scraper run <actor> --input '<json>' [--storage DIR] [--resume RUN_ID] [--webhook URL]
+    ww-scraper run <actor> --input '<json>' [--timeout SECS] [--storage DIR] [--resume RUN_ID] [--webhook URL]
     ww-scraper actors                     list actors and their input fields
     ww-scraper export <dataset-id> [--format json|jsonl|csv|xlsx|xml|html] [--fields a,b] [--out FILE]
     ww-scraper serve [--port 8765]        local API on 127.0.0.1
@@ -61,6 +61,8 @@ def _parser():
     r.add_argument("--input-file", default=None, help="read input JSON from a file")
     r.add_argument("--resume", default=None, metavar="RUN_ID", help="resume an earlier run")
     r.add_argument("--webhook", action="append", default=[], help="webhook URL (allowlisted)")
+    r.add_argument("--timeout", type=float, default=None, metavar="SECS",
+                   help="stop the run after SECS seconds; it ends TIMED-OUT with what it stored")
     r.add_argument("--print-items", action="store_true", help="print dataset items as JSONL")
     r.add_argument("--quiet", action="store_true", help="do not stream the run log")
     common(r)
@@ -145,8 +147,10 @@ def main(argv=None) -> int:
     if a.cmd == "runs":
         runs = Storage(a.storage).list_runs()[::-1][: max(1, a.limit)]
         for r in runs:
+            msg = " ".join(str(r.get("statusMessage") or "").split())
+            msg = (msg[:57] + "...") if len(msg) > 60 else msg
             print(f"{r.get('id', ''):26s} {r.get('actId', ''):24s} {r.get('status', ''):10s} "
-                  f"{r.get('itemCount', 0):6d} items  {r.get('startedAt') or ''}")
+                  f"{r.get('itemCount', 0):6d} items  {r.get('startedAt') or '':24s} {msg}".rstrip())
         if not runs:
             print("no runs yet")
         return 0
@@ -244,7 +248,7 @@ def main(argv=None) -> int:
         rec = run_actor(a.actor, data, storage, run_id=a.resume, lang=a.lang,
                         allow_loopback=a.allow_loopback,
                         log_stream=None if a.quiet else sys.stderr,
-                        webhooks=a.webhook or None)
+                        webhooks=a.webhook or None, timeout_secs=a.timeout)
     except InputError as e:
         for err in e.errors:
             print(f"input: {err}", file=sys.stderr)
