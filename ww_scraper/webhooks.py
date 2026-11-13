@@ -26,6 +26,8 @@ from .compliance import (USER_AGENT, SSRFBlocked, check_target, host_allowed,
 
 EVENTS = {"SUCCEEDED": "ACTOR.RUN.SUCCEEDED", "FAILED": "ACTOR.RUN.FAILED",
           "ABORTED": "ACTOR.RUN.ABORTED", "TIMED-OUT": "ACTOR.RUN.TIMED_OUT"}
+# sent when a run starts, only to webhooks that list them in eventTypes
+START_EVENTS = ("ACTOR.RUN.CREATED", "ACTOR.RUN.RESURRECTED")
 
 
 def sign(secret: str, timestamp: str, body: bytes) -> str:
@@ -76,19 +78,21 @@ def send(url, payload, *, secret, allow_hosts, allow_loopback=False, timeout=10,
     return 200 <= r.status_code < 300, f"HTTP {r.status_code}"
 
 
-def dispatch(record, webhooks, *, allow_loopback=False, allow_hosts=None, secret=None):
-    """Send the run-finished event to each webhook {requestUrl, eventTypes?}.
+def dispatch(record, webhooks, *, allow_loopback=False, allow_hosts=None, secret=None, event=None):
+    """Send the run-finished event (or `event`, e.g. ACTOR.RUN.CREATED) to each webhook
+    {requestUrl, eventTypes?}. Without eventTypes a webhook gets the four finish events.
     Returns log lines; failures never change the run's status."""
     env_hosts, env_secret = config_from_env()
     allow_hosts = env_hosts if allow_hosts is None else frozenset(allow_hosts)
     secret = env_secret if secret is None else secret
-    event = EVENTS.get(record.get("status"))
+    event = event or EVENTS.get(record.get("status"))
     lines = []
     if not event:
         return lines
     payload = {"eventType": event,
                "eventData": {"actorId": record.get("actId"), "actorRunId": record.get("id")},
-               "createdAt": record.get("finishedAt"), "resource": record}
+               "createdAt": record.get("finishedAt") or record.get("startedAt") or record.get("createdAt"),
+               "resource": record}
     for wh in webhooks or []:
         if isinstance(wh, str):
             wh = {"requestUrl": wh}

@@ -593,6 +593,11 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
         timer.start()
     ctx.log.info(f"run {rec['id']} actor={actor.name} started"
                  + (f" timeout={timeout:g}s" if timeout is not None else ""))
+    if webhooks:
+        from .webhooks import dispatch
+        start = "ACTOR.RUN.RESURRECTED" if rec.get("resumedFrom") else "ACTOR.RUN.CREATED"
+        for line in dispatch(rec, webhooks, allow_loopback=allow_loopback, event=start):
+            ctx.log.info(line)
     try:
         actor.run(ctx)
         if ctx.aborted:
