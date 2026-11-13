@@ -355,11 +355,29 @@ agent client. Nothing starts it on its own and it opens no network port. Its too
 first items), `get_run`, `list_runs` and `get_dataset_items` (by dataset id or name);
 `--read-only` leaves out `call_actor`. Runs go through the same code as `ww-scraper run`:
 robots.txt, per-host pacing, the SSRF guard and PII masking apply, loopback targets are
-refused, and a run lasts at most 3600 s. Items are returned as data, and the server tells
-the client to treat them as untrusted content, never as instructions.
+refused. Items are returned as data, and the server tells the client to treat them as
+untrusted content, never as instructions; a run's `statusMessage` and check names, which can
+quote a web page, come back as `{"untrusted": "..."}` (at most 2000 characters).
+
+An agent picks what an MCP run does, so every `call_actor` run has caps. A lower value can
+be given as a `call_actor` argument (`timeoutSecs`, `maxStoredItems`, `maxRequests`,
+`maxBytes`) or as a run option at the top of `input`; a value over the ceiling is refused.
+
+| Cap           | Default      | Ceiling        |
+|---------------|--------------|----------------|
+| `timeoutSecs` | 300 s        | 3600 s         |
+| stored items  | 1000         | 10000          |
+| `maxRequests` | 2000         | 20000          |
+| `maxBytes`    | 200 MB       | 1 GB           |
+
+`--allow-host HOST` (repeatable) limits MCP runs to those hosts and their subdomains: start
+URLs elsewhere are refused before the run starts, and the crawler refuses any other host on
+every request and redirect (`stats.hostBlocked`). Actors that only call fixed official APIs
+(media-collector) do not take hosts from their input and are not limited by it.
 
 ```json
-{"mcpServers": {"ww-scraper": {"command": "ww-scraper", "args": ["mcp", "--storage", "/path/to/storage"]}}}
+{"mcpServers": {"ww-scraper": {"command": "ww-scraper",
+  "args": ["mcp", "--storage", "/path/to/storage", "--allow-host", "example.com"]}}}
 ```
 
 ## Media sources (v0.1)

@@ -39,6 +39,47 @@ Defects found while measuring 150 local business sites; seven of them changed re
   level doubled it), and pages nested thousands of elements deep hit Python's recursion
   limit. Tables now walk only their own rows, the tree stops nesting at 160 levels, and
   the share-bar check walks at most 200 elements per candidate.
+- Python client: a base URL with `\`, `@`, whitespace or control characters is refused, and
+  the host must be the same literal loopback IP for `urlsplit` and for urllib3, which is
+  what requests connects to. Before, `http://evil.com\@127.0.0.1:8765` passed the loopback
+  check and the Bearer token went to evil.com. The JavaScript client refuses the same
+  characters and checks that every request stays on the base URL's origin.
+- API: `Content-Length` must be plain digits. `-1` used to read the body to the end of the
+  connection, past the 1 MB cap; `+5`, `1_0` and the like are refused too. A refused body
+  now also stops the handler: a PUT over 1 MB used to answer 413 and then store an empty
+  record.
+- NaN and infinity are refused everywhere a number comes in: JSON bodies, `checks` and
+  webhooks on the API, MCP messages and CLI `--input` are parsed without `NaN`/`Infinity`
+  (and `1e999`), `"type": "number"` fields reject non-finite values, and `?timeout=nan` is a
+  400. Before, `timeoutSecs: NaN` passed `minimum: 0`, its timer never fired and a
+  synchronous call lost its 300 s cap.
+- MCP: every `call_actor` run has caps on time, stored items, HTTP requests and bytes
+  (defaults 300 s, 1000, 2000, 200 MB; ceilings 3600 s, 10000, 20000, 1 GB), set with new
+  arguments `maxStoredItems`, `maxRequests`, `maxBytes` or as run options in `input`. New
+  `ww-scraper mcp --allow-host HOST` (repeatable) limits MCP runs to those hosts: start URLs
+  on other hosts are refused, and the crawler checks every request and redirect.
+- Runs started with `ctx.call_actor()` (pipeline and lead-list steps) are held to the
+  caller's budgets: at most what is left of its `maxRequests` and `maxBytes`, at most its
+  `maxItems`, and what they use counts against the caller (`stats.calledRequests`,
+  `stats.calledBytes`). Before, a step under a capped run had no cap of its own.
+- MCP: `statusMessage` and check names in `call_actor`, `get_run` and `list_runs` come back
+  as `{"untrusted": "..."}`, capped at 2000 characters, since they can quote a web page.
+- Secret input values are masked as `[secret]` (also URL-encoded) in the run record's
+  `statusMessage`, in `FAILED_REQUESTS` and in `ctx.set_status_message()`, not only in the
+  log, so the API, MCP and webhook payloads no longer carry them. Actors can use
+  `ctx.mask(text)`.
+- Webhooks: an entry that is not a URL string or `{requestUrl, eventTypes?}` is skipped with
+  a log line instead of raising before the run started, which left it RUNNING; the API
+  answers 400 for such a list.
+- Record keys are at most 200 characters (with the `.json` sidecar and the temporary name,
+  a 256-character key went over the file-name limit). `delete_run` takes only run ids, so a
+  named storage cannot be removed through it. Secret values of a run that is aborted while
+  waiting for a slot are dropped, and at most 1024 prepared runs hold secrets in memory.
+- The browser's filtering proxy sends one request per plain-HTTP connection
+  (`Connection: close`, nothing after the request body is relayed). Before, a kept-alive
+  browser connection sent later requests for other hosts to the first host. Chunked request
+  bodies through it are refused.
+
 - Markdown leaves out share bars (elements labelled as share tools, or made of links that
   only post the page to a social network) and Cloudflare's obfuscated e-mail links
   (`/cdn-cgi/l/email-protection`), which carry an encoded address. A class name alone

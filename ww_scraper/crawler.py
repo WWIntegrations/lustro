@@ -24,7 +24,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import requests
 
 from .compliance import (MAX_CRAWL_DELAY, MIN_INTERVAL_FLOOR, PoliteSession, RobotsCache,
-                         SSRFBlocked, check_target, is_loopback_host, origin_of,
+                         SSRFBlocked, check_target, host_allowed, is_loopback_host, origin_of,
                          network_reason, parse_retry_after, pin_session)
 from .storage import MemoryRequestQueue
 
@@ -355,7 +355,18 @@ class PoliteCrawler:
         limit = self.max_bytes if max_bytes is None else max_bytes
         current = url
         t0 = time.monotonic()
+        allow_hosts = getattr(self.ctx, "allow_hosts", None)
         for _ in range(self.max_redirects + 1):
+            if allow_hosts:
+                try:
+                    host = (urlparse(current).hostname or "").lower()
+                except ValueError:
+                    host = ""
+                if not host_allowed(host, allow_hosts):
+                    # checked on every hop, before any DNS lookup or robots.txt request
+                    res.final_url, res.error, res.blocked = current, f"host not allowed: {host or '?'}", True
+                    self._inc("hostBlocked")
+                    return res
             reason = check_target(current, self.allow_loopback)
             if reason:
                 res.final_url, res.error = current, f"ssrf: {reason}"
