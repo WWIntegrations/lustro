@@ -158,7 +158,9 @@ Defects found while measuring 150 local business sites; seven of them changed re
   stats; connection errors, 429 and 5xx retried with exponential backoff and Retry-After;
   refuses a non-loopback base URL.
 - `clients/js/ww-scraper-client.mjs`: the same client for Node 18+ in one dependency-free
-  file; other languages can generate one from `docs/openapi.json`.
+  file; other languages can generate one from `docs/openapi.json`. Like the Python client
+  it accepts only a literal loopback base URL (`127.x.x.x` with every octet <= 255, or
+  `[::1]`); `localhost` and names such as `127.0.0.1.nip.io` are refused.
 - `ww-scraper serve --max-runs N`: at most N runs execute at once; the others stay READY
   with a status message until a slot is free, and can be aborted while they wait.
 - Actor versions: `Actor.version` (the package version when not set) is shown by

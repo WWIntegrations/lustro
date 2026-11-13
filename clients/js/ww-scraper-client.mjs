@@ -8,7 +8,16 @@
 //   const items = await c.items(run.defaultDatasetId);
 
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"]);
-const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+// Same rule as compliance.is_loopback_host in Python: a literal 127.0.0.0/8 address or ::1,
+// never a name. "localhost" and names such as 127.0.0.1.nip.io resolve through DNS, so the
+// API token could be sent to another host.
+export function isLoopbackHost(host) {
+  const h = String(host || "").toLowerCase();
+  if (h === "[::1]" || h === "::1") return true;
+  const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  return m !== null && m.slice(1).every((o) => Number(o) <= 255);
+}
 
 export class ApiError extends Error {
   constructor(status, body) {
@@ -25,7 +34,7 @@ const enc = encodeURIComponent;
 export class Client {
   constructor(baseUrl = "http://127.0.0.1:8765", token = "", { retries = 4, backoff = 500, maxBackoff = 30000 } = {}) {
     const host = new URL(baseUrl).hostname;
-    if (!LOOPBACK.has(host) && !host.startsWith("127.")) throw new Error("the ww-scraper API listens on a loopback address only");
+    if (!isLoopbackHost(host)) throw new Error("the ww-scraper API listens on a loopback address only (a literal 127.x.x.x or [::1])");
     this.base = baseUrl.replace(/\/+$/, "");
     this.token = token;
     Object.assign(this, { retries, backoff, maxBackoff });
