@@ -236,6 +236,14 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 | `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html\|rss&fields=a,b&omit=c&flatten=1&unwind=d&desc=1&clean=1` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
 | `GET /v2/actor-runs/<id>/log` | the last 256 KB of the run log |
+| `POST /v2/acts/<name>/run-sync-get-dataset-items` | run, wait (up to 300 s) and return the items; takes the export options |
+| `POST /v2/acts/<name>/run-sync` | run, wait and return the `OUTPUT` record |
+| `GET /v2/datasets`, `/v2/key-value-stores`, `/v2/request-queues` (`?named=1`) | list storages; `GET` or `DELETE .../<id>` for one |
+| `GET /v2/key-value-stores/<id>/keys?collection=` | record keys; `PUT` / `DELETE .../records/<key>` writes or removes one |
+| `GET /v2/request-queues/<id>/requests`, `.../head` | queued requests, the next pending ones |
+| `GET /v2/actor-tasks`, `POST /v2/actor-tasks/<name>/runs` | tasks; `POST /v2/actor-tasks` saves one |
+| `GET /v2/stats/runs?days=30&last=200` | runs per day and status, metrics of recent runs |
+| `GET /v2/openapi.json` | this API as OpenAPI 3.1 (also [`docs/openapi.json`](docs/openapi.json)) |
 | `GET /console` | the web console below |
 
 ### Console

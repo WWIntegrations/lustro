@@ -777,6 +777,24 @@ class _QueueBase:
     def is_finished(self) -> bool:
         return self.pending_count == 0
 
+    def list_requests(self, offset: int = 0, limit: int = 100) -> list:
+        """Requests in the order they were added, each with handled and error."""
+        with self._lock:
+            keys = list(self._requests)[offset:offset + limit]
+            return [dict(self._requests[k], handled=k in self._handled) for k in keys]
+
+    def head(self, limit: int = 10) -> list:
+        """The next pending requests, without taking them."""
+        with self._lock:
+            out = []
+            for k in self._pending:
+                if k in self._handled or k in self._in_progress or any(r["unique_key"] == k for r in out):
+                    continue
+                out.append(dict(self._requests[k]))
+                if len(out) >= limit:
+                    break
+            return out
+
 
 class RequestQueue(_QueueBase):
     """Durable queue: every add/handled event is appended to a JSONL log and replayed on
@@ -811,6 +829,35 @@ class MemoryRequestQueue(_QueueBase):
     def __init__(self):
         super().__init__()
         self.id = "memory"
+
+
+# --- run statistics --------------------------------------------------------------------
+
+def run_stats(runs, days: int = 30, last: int = 200, now=None) -> dict:
+    """Runs started per day and status over the last `days` days (oldest first, every day
+    present), and metrics of the `last` most recent runs."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    first = (now - datetime.timedelta(days=days - 1)).date()
+    per_day = {(first + datetime.timedelta(days=i)).isoformat(): {} for i in range(days)}
+    for r in runs:
+        when = _parse_time(r.get("startedAt")) or _parse_time(r.get("createdAt"))
+        if when is None:
+            continue
+        day = when.date().isoformat()
+        if day in per_day:
+            st = r.get("status") or "UNKNOWN"
+            per_day[day][st] = per_day[day].get(st, 0) + 1
+    recent = sorted(runs, key=lambda r: r.get("createdAt") or "", reverse=True)[:last]
+    metrics = [{"id": r.get("id"), "actId": r.get("actId"), "status": r.get("status"),
+                "startedAt": r.get("startedAt"), "itemCount": r.get("itemCount", 0),
+                "durationMillis": (r.get("stats") or {}).get("durationMillis"),
+                "requests": (r.get("stats") or {}).get("requests"),
+                "failed": (r.get("stats") or {}).get("failed")} for r in recent]
+    totals: dict = {}
+    for counts in per_day.values():
+        for k, v in counts.items():
+            totals[k] = totals.get(k, 0) + v
+    return {"days": [dict(date=d, **c) for d, c in per_day.items()], "totals": totals, "recent": metrics}
 
 
 # --- Storage root ----------------------------------------------------------------------
@@ -870,6 +917,87 @@ class Storage:
 
     def named_queue(self, name: str) -> RequestQueue:
         return RequestQueue(self.root, check_name(name))
+
+    # -- listing and deleting ------------------------------------------------------------
+    KINDS = {"datasets": "datasets", "key-value-stores": "key_value_stores",
+             "request-queues": "request_queues"}
+
+    def _kind_dir(self, kind: str) -> Path:
+        if kind not in self.KINDS:
+            raise StorageError(f"unknown storage kind: {kind!r}")
+        return self.root / self.KINDS[kind]
+
+    def storage_info(self, kind: str, storage_id: str):
+        """{id, name, runId, kind, modifiedAt, bytes, ...counts} or None when it does not exist."""
+        path = self._kind_dir(kind) / _check_id(storage_id)
+        if not path.is_dir():
+            return None
+        files = [p for p in path.rglob("*") if p.is_file()]
+        mtime = max((p.stat().st_mtime for p in files), default=path.stat().st_mtime)
+        info = {"id": storage_id, "kind": kind, "name": None if is_run_id(storage_id) else storage_id,
+                "runId": storage_id if is_run_id(storage_id) else None,
+                "modifiedAt": datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc)
+                .strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z",
+                "bytes": sum(p.stat().st_size for p in files)}
+        if kind == "datasets":
+            ds = self.dataset(storage_id)
+            info["itemCount"] = ds.count()
+            info["schema"] = ds.schema()
+        elif kind == "key-value-stores":
+            kv = self.kv(storage_id)
+            info["keyCount"] = len(kv.keys())
+            info["schema"] = kv.schema()
+        else:
+            q = self.queue(storage_id)
+            info.update(totalRequestCount=q.total_count, handledRequestCount=q.handled_count,
+                        pendingRequestCount=q.pending_count)
+        return info
+
+    def list_storages(self, kind: str, named=None) -> list:
+        """Info of every storage of a kind, newest first; named=True/False filters."""
+        folder = self._kind_dir(kind)
+        if not folder.is_dir():
+            return []
+        out = []
+        for p in folder.iterdir():
+            if not p.is_dir() or not valid_id(p.name):
+                continue
+            if named is not None and named == is_run_id(p.name):
+                continue
+            info = self.storage_info(kind, p.name)
+            if info:
+                out.append(info)
+        return sorted(out, key=lambda i: i["modifiedAt"], reverse=True)
+
+    def run_is_live(self, run_id: str) -> bool:
+        from .actor import TERMINAL
+        rec = self.load_run(run_id) if is_run_id(run_id) else None
+        return rec is not None and rec.get("status") not in TERMINAL
+
+    def delete_storage(self, kind: str, storage_id: str) -> bool:
+        """Delete one storage. A storage of a run that is still going is refused."""
+        import shutil
+        path = self._kind_dir(kind) / _check_id(storage_id)
+        if self.run_is_live(storage_id):
+            raise StorageError(f"run {storage_id} is still going; abort it first")
+        if not path.is_dir():
+            return False
+        shutil.rmtree(path)
+        return True
+
+    def delete_run(self, run_id: str) -> bool:
+        """Delete a finished run with its record, log, report and unnamed storages."""
+        import shutil
+        if self.load_run(run_id) is None:
+            return False
+        if self.run_is_live(run_id):
+            raise StorageError(f"run {run_id} is still going; abort it first")
+        for p in self.run_paths(run_id):
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.exists():
+                p.unlink()
+        return True
 
     # -- retention --------------------------------------------------------------------
     def run_paths(self, run_id: str) -> list:

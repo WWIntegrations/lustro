@@ -17,6 +17,21 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
          &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1&view=name]
     GET  /v2/key-value-stores/<id>/records/<key>
     GET  /v2/actor-runs/<id>/log                        last 256 KB of the run log
+    GET  /v2/acts/<name>                                one actor with its schemas and version
+    POST /v2/acts/<name>/run-sync-get-dataset-items[?timeout=&format=&fields=&view=...]
+                                                        run, wait (up to 300 s), return the items
+    POST /v2/acts/<name>/run-sync[?timeout=]           run, wait, return the OUTPUT record
+    DELETE /v2/actor-runs/<id>                          a finished run with its unnamed storages
+    GET  /v2/datasets[?named=1]   GET|DELETE /v2/datasets/<id>
+    GET  /v2/key-value-stores[?named=1]   GET|DELETE /v2/key-value-stores/<id>
+    GET  /v2/key-value-stores/<id>/keys[?collection=]
+    PUT|DELETE /v2/key-value-stores/<id>/records/<key>  write or remove one record
+    GET  /v2/request-queues[?named=1]   GET|DELETE /v2/request-queues/<id>
+    GET  /v2/request-queues/<id>/requests[?offset=&limit=]   GET .../head[?limit=]
+    GET  /v2/actor-tasks   POST /v2/actor-tasks (body {name, actId, input, options})
+    GET|DELETE /v2/actor-tasks/<name>   POST /v2/actor-tasks/<name>/runs (body = input override)
+    GET  /v2/stats/runs[?days=30&last=200]              runs per day and status, recent run metrics
+    GET  /v2/openapi.json                               this API as OpenAPI 3.1
     GET  /console                                       web console (static files only)
 
 The console page and its script and stylesheet carry no data, so they are served without
@@ -105,6 +120,9 @@ class ScraperAPI:
     def start_run(self, actor, input, run_id=None, webhooks=None, options=None):
         rec = prepare_run(actor, input, self.storage, run_id=run_id, lang=self.lang,
                           options=options)
+        return self.launch(rec, webhooks)
+
+    def launch(self, rec, webhooks=None):
         abort = threading.Event()
         t = threading.Thread(target=execute_run, args=(rec, self.storage), daemon=True,
                              kwargs={"allow_loopback": self.allow_loopback,
@@ -194,6 +212,12 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/v2/actor-runs":
             runs = st.list_runs()
             return self._json(200, {"data": {"total": len(runs), "items": runs}})
+        if path == "/v2/openapi.json":
+            from .openapi import spec
+            return self._json(200, spec())
+        handled = self._get_more(path, q)
+        if handled is not False:
+            return handled
         m = re.fullmatch(r"/v2/actor-runs/([^/]+)", path)
         if m:
             rec = st.load_run(m.group(1))
@@ -254,6 +278,153 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, rec[0], rec[1], {"Content-Security-Policy": "sandbox"})
         return self._error(404, "not-found", "unknown route")
 
+    def _list(self, items):
+        return self._json(200, {"data": {"total": len(items), "count": len(items), "offset": 0, "items": items}})
+
+    def _named(self, q):
+        v = q.get("named")
+        return None if v is None else v.lower() in ("1", "true", "yes")
+
+    def _get_more(self, path, q):
+        """Storage, queue, task and actor routes; False when the path is not one of them."""
+        st = self.ctx.storage
+        m = re.fullmatch(r"/v2/acts/([^/]+)", path)
+        if m:
+            actor = get_actor(unquote(m.group(1)))
+            if actor is None:
+                return self._error(404, "not-found", "actor not found")
+            return self._json(200, {"data": actor.describe()})
+        m = re.fullmatch(r"/v2/(datasets|key-value-stores|request-queues)", path)
+        if m:
+            return self._list(st.list_storages(m.group(1), self._named(q)))
+        m = re.fullmatch(r"/v2/(datasets|key-value-stores|request-queues)/([^/]+)", path)
+        if m:
+            info = st.storage_info(m.group(1), m.group(2)) if valid_id(m.group(2)) else None
+            if info is None:
+                return self._error(404, "not-found", "storage not found")
+            return self._json(200, {"data": info})
+        m = re.fullmatch(r"/v2/key-value-stores/([^/]+)/keys", path)
+        if m:
+            if not valid_id(m.group(1)) or st.storage_info("key-value-stores", m.group(1)) is None:
+                return self._error(404, "not-found", "store not found")
+            kv = st.kv(m.group(1))
+            try:
+                keys = kv.keys(collection=q.get("collection") or None)
+            except StorageError as e:
+                return self._error(400, "invalid-request", str(e))
+            items = []
+            for k in keys:
+                rec = kv.get_record(k)
+                items.append({"key": k, "size": len(rec[0]) if rec else 0, "contentType": rec[1] if rec else None})
+            return self._list(items)
+        m = re.fullmatch(r"/v2/request-queues/([^/]+)/(requests|head)", path)
+        if m:
+            if not valid_id(m.group(1)) or st.storage_info("request-queues", m.group(1)) is None:
+                return self._error(404, "not-found", "queue not found")
+            queue = st.queue(m.group(1))
+            try:
+                offset = max(0, int(q.get("offset", 0)))
+                limit = max(1, min(1000, int(q.get("limit", 100 if m.group(2) == "requests" else 10))))
+            except ValueError:
+                return self._error(400, "invalid-request", "offset and limit must be whole numbers")
+            items = queue.list_requests(offset, limit) if m.group(2) == "requests" else queue.head(limit)
+            return self._list(items)
+        if path == "/v2/stats/runs":
+            try:
+                days = max(1, min(366, int(q.get("days", 30))))
+                last = max(1, min(1000, int(q.get("last", 200))))
+            except ValueError:
+                return self._error(400, "invalid-request", "days and last must be whole numbers")
+            from .storage import run_stats
+            return self._json(200, {"data": run_stats(st.list_runs(), days, last)})
+        if path == "/v2/actor-tasks":
+            from .tasks import list_tasks
+            return self._list(list_tasks(st))
+        m = re.fullmatch(r"/v2/actor-tasks/([^/]+)", path)
+        if m:
+            from .tasks import TaskError, load_task
+            try:
+                task = load_task(st, unquote(m.group(1)))
+            except TaskError:
+                task = None
+            if task is None:
+                return self._error(404, "not-found", "task not found")
+            return self._json(200, {"data": task})
+        return False
+
+    # -- PUT / DELETE -------------------------------------------------------------------
+    def _body(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None, self._error(400, "invalid-request", "bad Content-Length")
+        if length > MAX_BODY:
+            return None, self._error(413, "payload-too-large", "body over 1 MB")
+        return (self.rfile.read(length) if length else b""), None
+
+    def do_PUT(self):
+        if not self._guard():
+            return
+        path, _ = self._route()
+        m = re.fullmatch(r"/v2/key-value-stores/([^/]+)/records/([^/]+)", path)
+        if not m:
+            return self._error(404, "not-found", "unknown route")
+        sid, key = m.group(1), unquote(m.group(2))
+        if not valid_id(sid) or not valid_key(key):
+            return self._error(400, "invalid-request", "invalid store id or key")
+        if self.ctx.storage.run_is_live(sid):
+            return self._error(409, "run-not-finished", "the store belongs to a run that is still going")
+        body, err = self._body()
+        if err is not None:
+            return err
+        ctype = self.headers.get("Content-Type") or "application/octet-stream"
+        if ctype.split(";")[0].strip().lower() == "application/json":
+            try:
+                json.loads(body or b"null")
+            except ValueError:
+                return self._error(400, "invalid-input", "body is not valid JSON")
+        self.ctx.storage.kv(sid).set(key, body, ctype)
+        return self._json(201, {"data": {"key": key, "size": len(body), "contentType": ctype}})
+
+    def do_DELETE(self):
+        if not self._guard():
+            return
+        path, _ = self._route()
+        st = self.ctx.storage
+        try:
+            m = re.fullmatch(r"/v2/key-value-stores/([^/]+)/records/([^/]+)", path)
+            if m:
+                sid, key = m.group(1), unquote(m.group(2))
+                if not valid_id(sid) or not valid_key(key) or st.kv(sid).get_record(key) is None:
+                    return self._error(404, "not-found", "record not found")
+                if st.run_is_live(sid):
+                    raise StorageError("the store belongs to a run that is still going")
+                st.kv(sid).delete(key)
+                return self._send(204, b"")
+            m = re.fullmatch(r"/v2/(datasets|key-value-stores|request-queues)/([^/]+)", path)
+            if m:
+                if not valid_id(m.group(2)) or not st.delete_storage(m.group(1), m.group(2)):
+                    return self._error(404, "not-found", "storage not found")
+                return self._send(204, b"")
+            m = re.fullmatch(r"/v2/actor-runs/([^/]+)", path)
+            if m:
+                if not valid_id(m.group(1)) or not st.delete_run(m.group(1)):
+                    return self._error(404, "not-found", "run not found")
+                return self._send(204, b"")
+            m = re.fullmatch(r"/v2/actor-tasks/([^/]+)", path)
+            if m:
+                from .tasks import TaskError, delete_task
+                try:
+                    gone = delete_task(st, unquote(m.group(1)))
+                except TaskError:
+                    gone = False
+                if not gone:
+                    return self._error(404, "not-found", "task not found")
+                return self._send(204, b"")
+        except StorageError as e:
+            return self._error(409, "conflict", str(e))
+        return self._error(404, "not-found", "unknown route")
+
     # -- POST -------------------------------------------------------------------------
     def do_POST(self):
         if not self._guard():
@@ -274,6 +445,11 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/v2/actor-runs/([^/]+)/resurrect", path)
         if m:
             return self._resurrect(m.group(1), q)
+        if path == "/v2/actor-tasks" or re.fullmatch(r"/v2/actor-tasks/([^/]+)/runs", path):
+            return self._task_post(path, q)
+        m = re.fullmatch(r"/v2/acts/([^/]+)/(run-sync|run-sync-get-dataset-items)", path)
+        if m:
+            return self._run_sync(unquote(m.group(1)), m.group(2), q)
         m = re.fullmatch(r"/v2/acts/([^/]+)/runs", path)
         if not m:
             return self._error(404, "not-found", "unknown route")
@@ -295,12 +471,34 @@ class _Handler(BaseHTTPRequestHandler):
             webhooks = self._webhooks(q)
         except (ValueError, TypeError):
             return self._error(400, "invalid-request", "webhooks must be base64 JSON list")
+        try:
+            options = self._options(q)
+        except ValueError as e:
+            return self._error(400, "invalid-request", str(e))
+        try:
+            rec = self.ctx.start_run(actor.name, data, webhooks=webhooks, options=options)
+        except InputError as e:
+            return self._json(400, {"error": {"type": "invalid-input", "message": str(e),
+                                              "errors": e.errors}})
+        return self._started(rec, q)
+
+    def _read_json(self):
+        body, err = self._body()
+        if err is not None:
+            return None, err
+        try:
+            return (json.loads(body) if body.strip() else {}), None
+        except ValueError:
+            return None, self._error(400, "invalid-input", "body is not valid JSON")
+
+    def _options(self, q):
+        """Run options from query parameters; raises ValueError with a message."""
         options = {}
         if q.get("timeout"):
             try:
                 options["timeoutSecs"] = float(q["timeout"])
             except ValueError:
-                return self._error(400, "invalid-request", "timeout must be a number of seconds")
+                raise ValueError("timeout must be a number of seconds") from None
         if q.get("dataset"):
             options["datasetName"] = q["dataset"]
         for key in ("maxItems", "maxRequests", "maxBytes"):
@@ -308,13 +506,80 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     options[key] = int(q[key])
                 except ValueError:
-                    return self._error(400, "invalid-request", f"{key} must be a whole number")
+                    raise ValueError(f"{key} must be a whole number") from None
+        return options
+
+    def _task_post(self, path, q):
+        from .tasks import TaskError, save_task, task_run_args
+        st = self.ctx.storage
+        data, err = self._read_json()
+        if err is not None:
+            return err
         try:
-            rec = self.ctx.start_run(actor.name, data, webhooks=webhooks, options=options)
+            if path == "/v2/actor-tasks":
+                if not isinstance(data, dict):
+                    return self._error(400, "invalid-input", "body must be a JSON object")
+                task = save_task(st, str(data.get("name") or ""), str(data.get("actId") or ""),
+                                 data.get("input") or {}, data.get("options") or {}, lang=self.ctx.lang)
+                return self._json(201, {"data": task})
+            name = unquote(re.fullmatch(r"/v2/actor-tasks/([^/]+)/runs", path).group(1))
+            actor, merged, opts = task_run_args(st, name, data or None, self._options(q))
+            hooks = self._webhooks(q)
+            rec = prepare_run(actor, merged, st, lang=self.ctx.lang, options=opts, task_name=name)
+        except TaskError as e:
+            return self._error(404 if "unknown task" in str(e) else 400, "invalid-request", str(e))
         except InputError as e:
-            return self._json(400, {"error": {"type": "invalid-input", "message": str(e),
-                                              "errors": e.errors}})
+            return self._json(400, {"error": {"type": "invalid-input", "message": str(e), "errors": e.errors}})
+        except (ValueError, TypeError) as e:
+            return self._error(400, "invalid-request", str(e))
+        self.ctx.launch(rec, hooks)
         return self._started(rec, q)
+
+    def _run_sync(self, name, kind, q):
+        actor = get_actor(name)
+        if actor is None:
+            return self._error(404, "not-found", f"actor {name!r} not found")
+        data, err = self._read_json()
+        if err is not None:
+            return err
+        try:
+            options = self._options(q)
+        except ValueError as e:
+            return self._error(400, "invalid-request", str(e))
+        # a synchronous call never waits longer than MAX_WAIT: the run is given that timeout
+        options["timeoutSecs"] = min(options.get("timeoutSecs") or MAX_WAIT, MAX_WAIT)
+        try:
+            rec = self.ctx.start_run(actor.name, data, options=options)
+        except InputError as e:
+            return self._json(400, {"error": {"type": "invalid-input", "message": str(e), "errors": e.errors}})
+        self.ctx.runs[rec["id"]][0].join(MAX_WAIT + 15)
+        rec = self.ctx.storage.load_run(rec["id"])
+        extra = {"X-WW-Scraper-Run-Id": rec["id"], "X-WW-Scraper-Run-Status": rec["status"]}
+        if rec["status"] not in TERMINAL:
+            return self._json(408, {"error": {"type": "run-timeout", "message": "the run did not finish in time",
+                                              "run": rec}})
+        if kind == "run-sync":
+            got = self.ctx.storage.kv(rec["defaultKeyValueStoreId"]).get_record("OUTPUT")
+            if got is None:
+                return self._json(200 if rec["status"] == "SUCCEEDED" else 400, {"data": rec})
+            return self._send(200 if rec["status"] == "SUCCEEDED" else 400, got[0], got[1],
+                              dict(extra, **{"Content-Security-Policy": "sandbox"}))
+        if rec["status"] not in ("SUCCEEDED", "TIMED-OUT"):
+            return self._json(400, {"error": {"type": "run-failed", "message": rec.get("statusMessage") or "",
+                                              "run": rec}})
+        split = lambda k: [f.strip() for f in q[k].split(",")] if q.get(k) else None
+        flag = lambda k: q.get(k, "").lower() in ("1", "true", "yes")
+        fmt = q.get("format", "json")
+        try:
+            body, ctype = self.ctx.storage.dataset(rec["defaultDatasetId"]).export(
+                fmt, int(q.get("offset", 0)), int(q["limit"]) if "limit" in q else None, split("fields"),
+                omit=split("omit"), flatten=flag("flatten"), unwind=q.get("unwind") or None,
+                desc=flag("desc"), clean=flag("clean"), view=q.get("view") or None)
+        except (ValueError, StorageError) as e:
+            return self._error(400, "invalid-request", str(e))
+        if fmt == "html":
+            extra["Content-Security-Policy"] = "sandbox"
+        return self._send(200, body, ctype, extra)
 
     def _started(self, rec, q):
         try:
@@ -344,12 +609,10 @@ class _Handler(BaseHTTPRequestHandler):
                                f"run is {prev.get('status')}; only a finished run can be resurrected")
         if get_actor(prev.get("actId")) is None:
             return self._error(404, "not-found", f"actor {prev.get('actId')!r} is not loaded")
-        options = {}
-        if q.get("timeout"):
-            try:
-                options["timeoutSecs"] = float(q["timeout"])
-            except ValueError:
-                return self._error(400, "invalid-request", "timeout must be a number of seconds")
+        try:
+            options = self._options(q)
+        except ValueError as e:
+            return self._error(400, "invalid-request", str(e))
         try:
             hooks = self._webhooks(q)
         except (ValueError, TypeError):
