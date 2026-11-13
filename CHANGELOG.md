@@ -115,6 +115,9 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - Run budgets: `maxItems`, `maxRequests` and `maxBytes` (CLI `--max-items` and so on, API
   query parameters, top-level input keys or task options) stop a run cleanly: it ends
   SUCCEEDED with `stopped at maxItems=100`, and `maxItems` keeps exactly that many items.
+- Actor state: `ctx.use_state(default)` returns a dict saved to the run's key-value store
+  (`STATE`) every 60 seconds and whenever the run ends, in any status; a resumed run gets
+  it back.
 
 ## 0.9.0 (2026-11-12)
 
