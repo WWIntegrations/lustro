@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -65,11 +66,29 @@ _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TYPES = {
     "string": lambda v: isinstance(v, str),
     "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
-    "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+    # NaN and infinity are not numbers here: nan < 0 is False, so they pass every bound
+    "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v),
     "boolean": lambda v: isinstance(v, bool),
     "array": lambda v: isinstance(v, list),
     "object": lambda v: isinstance(v, dict),
 }
+
+
+def _no_constant(name):
+    raise ValueError(f"{name} is not valid JSON here")
+
+
+def _finite_float(text):
+    v = float(text)
+    if not math.isfinite(v):          # 1e999 parses to inf
+        raise ValueError(f"{text} is out of range")
+    return v
+
+
+def loads_strict(raw):
+    """json.loads that refuses NaN, Infinity and numbers too large for a float. Python's
+    parser takes them by default, and a NaN slips through every minimum/maximum check."""
+    return json.loads(raw, parse_constant=_no_constant, parse_float=_finite_float)
 
 
 class InputError(ValueError):
@@ -275,6 +294,16 @@ class RunAborted(Exception):
     pass
 
 
+def mask_secrets(text, secrets) -> str:
+    """text with every secret value (and its URL-encoded forms) replaced by [secret]."""
+    from urllib.parse import quote, quote_plus
+    text = str(text if text is not None else "")
+    for secret in secrets or ():
+        for form in {secret, quote(secret, safe=""), quote_plus(secret)}:
+            text = text.replace(form, "[secret]")
+    return text
+
+
 class RunLog:
     """Tiny line logger: storage/runs/<id>.log plus an optional stream."""
 
@@ -285,9 +314,7 @@ class RunLog:
         self._lock = threading.Lock()
 
     def _write(self, level, msg):
-        msg = str(msg)
-        for secret in self.secrets:
-            msg = msg.replace(secret, "[secret]")
+        msg = mask_secrets(msg, self.secrets)
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S")
         line = f"{ts} {level:5s} {msg}"
         with self._lock:
@@ -333,12 +360,32 @@ RUN_OPTIONS_SCHEMA = {
 }
 STATUS_MESSAGE_MAX = 500
 BUDGETS = {"maxItems": "items", "maxRequests": "requests", "maxBytes": "bytes"}
+# what runs started with ctx.call_actor() used, counted against the caller's budgets too
+CALLED_USAGE = {"maxRequests": "calledRequests", "maxBytes": "calledBytes"}
 MAX_CALL_DEPTH = 4
 STATE_KEY = "STATE"
 STATE_PERSIST_SECS = 60.0               # ctx.call_actor() nesting: a run calling itself stops here
 
-# run id -> secret input values of a prepared run, kept in memory only
+# run id -> secret input values of a prepared run, kept in memory only. A run that is
+# prepared but never executed (aborted while waiting for a slot) drops its entry through
+# discard_secrets(); the cap bounds what any other path could leave behind.
 _SECRETS: dict = {}
+_SECRETS_MAX = 1024
+_SECRETS_LOCK = threading.Lock()
+
+
+def _hold_secrets(run_id, held) -> None:
+    with _SECRETS_LOCK:
+        _SECRETS.pop(run_id, None)
+        _SECRETS[run_id] = held
+        while len(_SECRETS) > _SECRETS_MAX:      # oldest first (dicts keep insertion order)
+            _SECRETS.pop(next(iter(_SECRETS)))
+
+
+def discard_secrets(run_id) -> None:
+    """Forget the secret input values of a prepared run that will not be executed."""
+    with _SECRETS_LOCK:
+        _SECRETS.pop(run_id, None)
 # run id -> RunContext of every run executing in this process (for abort requests)
 _LIVE: dict = {}
 _LIVE_LOCK = threading.Lock()
@@ -422,7 +469,7 @@ class RunContext:
     """Everything an actor needs: input, storages, log, polite session, stats."""
 
     def __init__(self, run_id, actor, input, storage: Storage, *, allow_loopback=False,
-                 log_stream=None, abort_event=None, record=None, parent=None):
+                 log_stream=None, abort_event=None, record=None, parent=None, allow_hosts=None):
         self.run_id = run_id
         self.actor = actor
         self.input = input
@@ -438,6 +485,11 @@ class RunContext:
         self.abort_event = abort_event or threading.Event()
         self.parent = parent
         self.depth = parent.depth + 1 if parent is not None else 0
+        # hosts the crawler may fetch from (subdomains included); None = any public host.
+        # A called run keeps the allowlist of the run that called it.
+        if allow_hosts is None and parent is not None:
+            allow_hosts = parent.allow_hosts
+        self.allow_hosts = frozenset(h.lower().strip(".") for h in allow_hosts) if allow_hosts else None
         self.record = record if record is not None else {"id": run_id}
         self.timed_out = False
         self.deadline = None             # time.monotonic() value, or None
@@ -458,11 +510,34 @@ class RunContext:
         if self.abort_event.is_set() or (self.parent is not None and self.parent.aborted):
             return True
         for key, limit in self.budgets.items():
-            if self.stats.get(BUDGETS[key], 0) >= limit:
+            if self._budget_used(key) >= limit:
                 self.budget_hit = f"{key}={limit}"
                 self.abort_event.set()
                 return True
         return False
+
+    def _budget_used(self, key) -> int:
+        return self.stats.get(BUDGETS[key], 0) + self.stats.get(CALLED_USAGE.get(key, ""), 0)
+
+    def _called_budgets(self, name, input, options) -> dict:
+        """options for a called run, with this run's budgets as ceilings: requests and bytes
+        get what is left of this run's budget, items this run's item cap. Without it a
+        pipeline step would run unbounded under a capped run. A lower budget asked for in
+        options or as a run option in input is kept."""
+        options = dict(options or {})
+        actor = get_actor(name)
+        own_props = actor.input_schema.get("properties", {}) if actor is not None else {}
+        for key, limit in self.budgets.items():
+            cap = limit if key == "maxItems" else max(1, limit - self._budget_used(key))
+            own = options.get(key)
+            if own is None and isinstance(input, dict) and key not in own_props:
+                own = input.get(key)
+            if own is None:
+                options[key] = cap
+            elif isinstance(own, int) and not isinstance(own, bool) and own > 0:
+                options[key] = min(own, cap)
+            # anything else is left as given, for the called run's validation to refuse
+        return options
 
     def check_abort(self):
         if self.aborted:
@@ -485,7 +560,7 @@ class RunContext:
             raise RuntimeError(f"call_actor: nesting deeper than {MAX_CALL_DEPTH} runs")
         if timeout_secs is not None:
             options = dict(options or {}, timeoutSecs=timeout_secs)
-        rec = prepare_run(name, input, self.storage, options=options)
+        rec = prepare_run(name, input, self.storage, options=self._called_budgets(name, input, options))
         rec["parentRunId"] = self.run_id
         self.storage.save_run(rec)
         with self._rec_lock:
@@ -494,6 +569,11 @@ class RunContext:
         rec = execute_run(rec, self.storage, allow_loopback=self.allow_loopback,
                           log_stream=self.log_stream, parent=self)
         self.stats["calledRuns"] = self.stats.get("calledRuns", 0) + 1
+        child = rec.get("stats") or {}
+        for key, stat in CALLED_USAGE.items():
+            used = child.get(BUDGETS[key], 0) + child.get(stat, 0)
+            if used:
+                self.stats[stat] = self.stats.get(stat, 0) + used
         self.log.info(f"call {rec['actId']}: run {rec['id']} {rec['status']} items={rec['itemCount']}"
                       + (f" ({rec['statusMessage']})" if rec["status"] != "SUCCEEDED" else ""))
         self._save_record()
@@ -519,10 +599,16 @@ class RunContext:
                 rec["stats"] = dict(self.stats)
                 self.storage.save_run(rec)
 
+    def mask(self, text) -> str:
+        """text with this run's secret input values replaced by [secret], as in the log.
+        Everything stored on the run record (status message, failures) goes through it,
+        since the record is served by the API, MCP and webhooks."""
+        return mask_secrets(text, self.log.secrets)
+
     def set_status_message(self, text) -> None:
         """Tell whoever watches the run what it is doing ("12/40 boards read"). Stored on
         the run record at once, shown by `ww-scraper runs`, the API and the console."""
-        text = self.redact_text(str(text if text is not None else ""))[:STATUS_MESSAGE_MAX]
+        text = self.redact_text(self.mask(text))[:STATUS_MESSAGE_MAX]
         self.record["statusMessage"] = text
         self._save_record()
 
@@ -608,7 +694,7 @@ class RunContext:
     def record_failure(self, url, reason):
         self.stats["failed"] += 1
         if len(self.failures) < 1000:
-            self.failures.append({"url": url, "reason": reason})
+            self.failures.append({"url": self.mask(url), "reason": self.mask(reason)})
         self.log.warning(f"{url}: {reason}")
 
     def crawler(self, **kwargs):
@@ -700,8 +786,6 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
         "itemCount": 0,
     }
     held = {k: clean.pop(k) for k in secrets if k in clean}
-    if held:
-        _SECRETS[run_id] = held      # in this process only, handed to the run when it starts
     from .schema import resolve_output
     rec["output"] = resolve_output(actor.output_schema, rec)
     storage.kv(run_id).set("INPUT", clean)
@@ -710,22 +794,27 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
     if actor.kv_schema:
         storage.kv(run_id).set_schema(actor.kv_schema)
     storage.save_run(rec)
+    if held:
+        _hold_secrets(run_id, held)  # in this process only, handed to the run when it starts
     return rec
 
 
 def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_stream=None,
-                abort_event=None, webhooks=None, parent=None):
-    """Run a prepared record to a terminal state and return the final record."""
+                abort_event=None, webhooks=None, parent=None, allow_hosts=None):
+    """Run a prepared record to a terminal state and return the final record.
+    allow_hosts: only these hosts (and their subdomains) are fetched by the run's crawler."""
     storage = storage or Storage()
     actor = get_actor(rec["actId"])
     clean = storage.kv(rec["id"]).get("INPUT", {})
-    held = _SECRETS.pop(rec["id"], {})
+    with _SECRETS_LOCK:
+        held = _SECRETS.pop(rec["id"], {})
     for key, env in secret_fields(actor.input_schema).items():
         if key not in held and env and os.environ.get(env):
             held[key] = os.environ[env]
     clean.update(held)
     ctx = RunContext(rec["id"], actor, clean, storage, allow_loopback=allow_loopback,
-                     log_stream=log_stream, abort_event=abort_event, record=rec, parent=parent)
+                     log_stream=log_stream, abort_event=abort_event, record=rec, parent=parent,
+                     allow_hosts=allow_hosts)
     ctx.log.secrets = [v for v in held.values() if isinstance(v, str) and len(v) >= 4]
     timeout = float((rec.get("options") or {}).get("timeoutSecs") or 0) or None
     if parent is not None and parent.remaining_secs is not None:
@@ -745,12 +834,12 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
         timer.start()
     ctx.log.info(f"run {rec['id']} actor={actor.name} started"
                  + (f" timeout={timeout:g}s" if timeout is not None else ""))
-    if webhooks:
-        from .webhooks import dispatch
-        start = "ACTOR.RUN.RESURRECTED" if rec.get("resumedFrom") else "ACTOR.RUN.CREATED"
-        for line in dispatch(rec, webhooks, allow_loopback=allow_loopback, event=start):
-            ctx.log.info(line)
     try:
+        if webhooks:
+            from .webhooks import dispatch
+            start = "ACTOR.RUN.RESURRECTED" if rec.get("resumedFrom") else "ACTOR.RUN.CREATED"
+            for line in dispatch(rec, webhooks, allow_loopback=allow_loopback, event=start):
+                ctx.log.info(line)
         actor.run(ctx)
         if ctx.aborted:
             raise RunAborted("run aborted")
@@ -762,7 +851,7 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
             status = "ABORTED"   # the timeout cut a request short; report it as the timeout
         else:
             status = "FAILED"
-            rec["statusMessage"] = f"{type(e).__name__}: {e}"[:STATUS_MESSAGE_MAX]
+            rec["statusMessage"] = ctx.mask(f"{type(e).__name__}: {e}")[:STATUS_MESSAGE_MAX]
             ctx.log.error(traceback.format_exc())
     finally:
         if timer is not None:
@@ -826,7 +915,7 @@ def request_abort(run_id) -> bool:
 
 def run_actor(actor_name, input=None, storage: Storage = None, *, run_id=None, lang=None,
               allow_loopback=False, log_stream=None, abort_event=None, webhooks=None,
-              options=None, timeout_secs=None, task_name=None):
+              options=None, timeout_secs=None, task_name=None, allow_hosts=None):
     """Validate, create and execute a run synchronously. Returns the final record.
     timeout_secs is a shortcut for options={"timeoutSecs": ...}."""
     storage = storage or Storage()
@@ -835,7 +924,7 @@ def run_actor(actor_name, input=None, storage: Storage = None, *, run_id=None, l
     rec = prepare_run(actor_name, input, storage, run_id=run_id, lang=lang, options=options,
                       task_name=task_name)
     return execute_run(rec, storage, allow_loopback=allow_loopback, log_stream=log_stream,
-                       abort_event=abort_event, webhooks=webhooks)
+                       abort_event=abort_event, webhooks=webhooks, allow_hosts=allow_hosts)
 
 
 def stderr_stream():
