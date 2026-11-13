@@ -281,15 +281,50 @@ def _tidy(md: str) -> str:
     return text.strip()
 
 
+def _common_ancestor(nodes: list) -> Node:
+    paths = []
+    for n in nodes:
+        path = []
+        while n is not None:
+            path.append(n)
+            n = n.parent
+        paths.append(path[::-1])
+    common = paths[0][0]
+    for level in zip(*paths):
+        if all(x is level[0] for x in level):
+            common = level[0]
+        else:
+            break
+    return common
+
+
+def _article_content(root: Node):
+    """One <article> is the main content. Several top-level articles are either a page with one
+    real article and a few teasers, or a listing (products, posts) where each item is an
+    article: the first case keeps the dominant article, the second keeps the list they share,
+    instead of the first item only."""
+    tops = [n for n in root.iter() if n.tag == "article" and not _inside(n, ("article",))]
+    if not tops:
+        return None
+    if len(tops) == 1:
+        return tops[0]
+    sizes = [len(a.text()) for a in tops]
+    if max(sizes) >= 0.6 * sum(sizes):
+        return tops[sizes.index(max(sizes))]
+    return _common_ancestor(tops)
+
+
 def main_content(root: Node) -> Node:
     for pred in (lambda n: n.tag == "main",
-                 lambda n: n.attrs.get("role") == "main",
-                 lambda n: n.tag == "article",
-                 lambda n: n.tag == "body"):
+                 lambda n: n.attrs.get("role") == "main"):
         hit = root.find(pred)
         if hit is not None:
             return hit
-    return root
+    hit = _article_content(root)
+    if hit is not None:
+        return hit
+    hit = root.find(lambda n: n.tag == "body")
+    return hit if hit is not None else root
 
 
 def to_markdown(root: Node, base_url: str) -> str:

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Main content of listing pages: when a page holds several top-level `<article>` elements and
+  none dominates, the Markdown keeps the list they share instead of the first item only (a
+  200-page crawl of a book catalog: 1.0 price per listing page before, 10.89 after). One long
+  article next to short teasers still wins on its own.
+- docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
+  memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+
 ## 0.9.0 (2026-11-12)
 
 - Four ready actors for the categories people most often buy ready-made scrapers for, each
