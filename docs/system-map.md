@@ -81,7 +81,7 @@ init writes a working actor file. run loads it from the command line and gives i
 
 Source: [`ww_scraper/plugins.py`](../ww_scraper/plugins.py), [`ww_scraper/__main__.py`](../ww_scraper/__main__.py), [`tests/test_plugins_report.py`](../tests/test_plugins_report.py)
 
-## Eleven actors, one crawler
+## Twenty actors, one crawler
 
 All actors run through the same run context and crawler, so the compliance gates apply to each of them. An actor can also run another one with `ctx.call_actor()`: `lead-list` runs `places` and then `contact-details`, and `pipeline` chains any actors. A called run has its own storages and stays inside the caller's timeout.
 

@@ -492,7 +492,7 @@ def parse_html(html: str, base_url: str) -> Page:
                 page.description = _WS.sub(" ", content)
             elif name in ("robots", "ww-scraper"):
                 page.robots = ",".join(filter(None, [page.robots, content.lower()]))
-            elif prop.startswith(("og:", "product:")) and prop not in page.og:
+            elif prop.startswith(("og:", "product:", "article:")) and prop not in page.og:
                 page.og[prop] = content
             elif name.startswith("twitter:") and name not in page.twitter:
                 page.twitter[name] = content

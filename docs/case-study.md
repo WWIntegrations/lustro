@@ -70,6 +70,6 @@ characters, and a real HTTP date.
 
 ## What it does not try to be
 
-It runs on one machine and will not scale out to many. It has seventeen built-in actors, not
+It runs on one machine and will not scale out to many. It has twenty built-in actors, not
 a marketplace of thousands. It will not collect from a site that forbids automated access.
 [`comparison.md`](comparison.md) sets this out next to what hosted platforms offer.

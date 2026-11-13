@@ -2,14 +2,17 @@
 fetch is robots.txt-checked, rate-limited per host and SSRF-guarded."""
 from __future__ import annotations
 
+from .articles import Articles
 from .change_monitor import ChangeMonitor
 from .contact_details import ContactDetails
+from .events import Events
 from .feed_reader import FeedReader
 from .job_postings import JobPostings
 from .lead_list import LeadList
 from .link_checker import LinkChecker
 from .llms_txt import LlmsTxt
 from .media_collector import MediaCollector
+from .package_info import PackageInfo
 from .pipeline import Pipeline
 from .places import Places
 from .product_catalog import ProductCatalog
@@ -24,7 +27,7 @@ ACTORS = {a.name: a for a in (
     WebsiteContentCrawler(), Sitemap(), SeoAudit(), SecurityHeaders(), LlmsTxt(),
     LinkChecker(), MediaCollector(), RobotsAudit(), StructuredData(), ChangeMonitor(),
     FeedReader(), JobPostings(), Places(), ProductCatalog(), ContactDetails(), LeadList(),
-    Pipeline(),
+    Pipeline(), Articles(), Events(), PackageInfo(),
 )}
 
 

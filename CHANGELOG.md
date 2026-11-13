@@ -72,6 +72,15 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- New actors, each built on published structured data or an official API:
+  `articles` (schema.org Article, NewsArticle, BlogPosting and subtypes, with Open Graph
+  article tags as a fallback; `publishedAfter`, optional Markdown body, rich-result gaps in
+  `issues`), `events` (schema.org Event and its subtypes: dates, status, place, address,
+  organizer, performers, cheapest offer; past events skipped by default) and `package-info`
+  (npm, RubyGems and Packagist JSON APIs; maintainer names and e-mails are never read).
+  PyPI is not supported because pypi.org's robots.txt disallows its JSON API.
+- `article:*` Open Graph tags are now kept in a page's `og` data next to `og:*` and
+  `product:*`.
 - Console screens: Tasks (saved tasks, run with one click), Storage (named datasets and
   key-value stores, optionally every run storage, with newest items, keys and downloads)
   and History (runs per day by final status over 30 days from `/v2/stats/runs`, with a

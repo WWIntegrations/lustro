@@ -54,7 +54,7 @@ def test_registry_has_all_actors_with_schemas():
                            "security-headers", "llms-txt", "link-checker", "media-collector",
                            "robots-audit", "structured-data", "change-monitor", "feed-reader",
                            "job-postings", "places", "product-catalog", "contact-details",
-                           "lead-list", "pipeline"}
+                           "lead-list", "pipeline", "articles", "events", "package-info"}
     for a in ACTORS.values():
         d = a.describe()
         assert d["name"] and d["inputSchema"]["properties"]
