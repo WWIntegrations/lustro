@@ -80,6 +80,14 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - Live status messages: `ctx.set_status_message(text)` writes the text to the run record at
   once (redacted like any output); `ww-scraper runs`, `GET /v2/actor-runs/<id>` and the
   console run page show it.
+- Named storages: `ctx.dataset("name")`, `ctx.kv("name")` and `ctx.queue("name")` open a
+  storage shared by every run that uses the name; the run's own storages stay per run.
+  Items pushed to a named dataset are redacted like `ctx.push_data`. The run option
+  `datasetName` (CLI `--dataset NAME`, API `?dataset=`) appends a run's items to a named
+  dataset, so weekly runs can build one list. A name cannot look like a run id.
+- `ww-scraper purge --older-than 30d [--dry-run]` deletes finished runs older than the age,
+  with their record, log, report and unnamed storages. Named storages and runs still going
+  are never touched; `--dry-run` lists what would go and its size.
 
 ## 0.9.0 (2026-11-12)
 

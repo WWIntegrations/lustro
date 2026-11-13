@@ -16,7 +16,7 @@ import time
 import traceback
 
 from .compliance import PoliteSession, MIN_INTERVAL_FLOOR, redact_obj, redact_pii
-from .storage import Storage, new_id, valid_id
+from .storage import Dataset, KeyValueStore, RequestQueue, Storage, check_name, new_id, valid_id
 
 STATUSES = ("READY", "RUNNING", "ABORTING", "TIMING-OUT", "SUCCEEDED", "FAILED", "ABORTED",
             "TIMED-OUT")
@@ -221,6 +221,9 @@ RUN_OPTIONS_SCHEMA = {
         "timeoutSecs": {"type": "number", "minimum": 0,
                         "description": "Stop the run after this many seconds (0 = no limit); "
                                        "it ends TIMED-OUT and keeps what it stored"},
+        "datasetName": {"type": "string", "maxLength": 64,
+                        "description": "Also append this run's items to the named dataset, "
+                                       "which is kept across runs and never purged"},
     },
 }
 STATUS_MESSAGE_MAX = 500
@@ -243,7 +246,62 @@ def split_options(actor, data, options=None, lang=None):
     clean = {k: v for k, v in opts.items() if v is not None}
     clean, errors = validate_input({"properties": RUN_OPTIONS_SCHEMA["properties"]}, clean, lang)
     clean = {k: v for k, v in clean.items() if k in opts}
+    if clean.get("datasetName"):
+        try:
+            check_name(clean["datasetName"])
+        except ValueError as e:
+            errors.append(f"datasetName: {e}")
     return data, clean, errors
+
+
+class RunDataset(Dataset):
+    """The run's own dataset. Called with a name, returns that named dataset instead:
+    ctx.dataset.push(...) writes to this run, ctx.dataset("leads").push(...) to the named
+    one, with the same PII redaction as ctx.push_data."""
+
+    def __init__(self, ctx, root, dataset_id):
+        super().__init__(root, dataset_id)
+        self._ctx = ctx
+
+    def __call__(self, name=None):
+        if name is None:
+            return self
+        return _NamedDataset(self._ctx, self._ctx.storage.root, check_name(name))
+
+
+class _NamedDataset(Dataset):
+    def __init__(self, ctx, root, dataset_id):
+        super().__init__(root, dataset_id)
+        self._ctx = ctx
+
+    def push(self, items) -> int:
+        if isinstance(items, dict):
+            items = [items]
+        if self._ctx.redact:
+            items = [redact_obj(i) for i in items]
+        return super().push(items)
+
+
+class RunKeyValueStore(KeyValueStore):
+    """The run's own key-value store; ctx.kv("name") opens a named one."""
+
+    def __init__(self, ctx, root, store_id):
+        super().__init__(root, store_id)
+        self._ctx = ctx
+
+    def __call__(self, name=None):
+        return self if name is None else self._ctx.storage.named_kv(name)
+
+
+class RunRequestQueue(RequestQueue):
+    """The run's own request queue; ctx.queue("name") opens a named one."""
+
+    def __init__(self, ctx, root, queue_id):
+        super().__init__(root, queue_id)
+        self._ctx = ctx
+
+    def __call__(self, name=None):
+        return self if name is None else self._ctx.storage.named_queue(name)
 
 
 class RunContext:
@@ -255,9 +313,9 @@ class RunContext:
         self.actor = actor
         self.input = input
         self.storage = storage
-        self.dataset = storage.dataset(run_id)
-        self.kv = storage.kv(run_id)
-        self.queue = storage.queue(run_id)
+        self.dataset = RunDataset(self, storage.root, run_id)
+        self.kv = RunKeyValueStore(self, storage.root, run_id)
+        self.queue = RunRequestQueue(self, storage.root, run_id)
         self.log = RunLog(storage.log_path(run_id), log_stream)
         self.log_stream = log_stream
         self.allow_loopback = bool(allow_loopback)
@@ -381,8 +439,8 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
             if input is None:
                 input = storage.kv(run_id).get("INPUT", {})
     input, opts, opt_errors = split_options(actor, input, options, lang)
-    if prev and not opts:
-        opts = dict(prev.get("options") or {})
+    if prev:
+        opts = dict(prev.get("options") or {}, **opts)
     clean, errors = validate_input(actor.input_schema, input, lang)
     errors = opt_errors + errors
     if errors:
@@ -464,6 +522,11 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
             rec["statusMessage"] = "aborted"
     if ctx.failures:
         ctx.set_value("FAILED_REQUESTS", ctx.failures)
+    named = (rec.get("options") or {}).get("datasetName")
+    if named:
+        # items were already redacted on the way into the run's dataset
+        n = storage.named_dataset(named).push(list(ctx.dataset.iter_items()))
+        ctx.log.info(f"appended {n} item(s) to the named dataset {named}")
     with ctx._rec_lock:
         rec["status"] = status
         rec["finishedAt"] = _now()

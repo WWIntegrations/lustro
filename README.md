@@ -70,6 +70,7 @@ ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.com/"], "render": true, "maxConcurrency": 4}'
 ww-scraper runs                                       # what ran, with status, item counts and status message
 ww-scraper report <run-id>                            # one HTML file you can open or send
+ww-scraper purge --older-than 30d --dry-run           # what old runs would be deleted
 ww-scraper init price-watch                           # your own actor in one Python file
 ww-scraper run ./price_watch.py --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper serve                                      # local HTTP API, token required
@@ -83,6 +84,8 @@ ww-scraper serve                                      # local HTTP API, token re
 | A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format xlsx --out items.xlsx` |
 | Know why a URL was skipped | `robots-audit` shows the group, the rule and the pattern that decided |
 | Watch a site for changes | `change-monitor` with a `monitorName`, on a schedule printed by `ww-scraper schedule` |
+| One list built from many runs | `--dataset weekly-jobs` on each run appends its items to the named dataset `weekly-jobs` |
+| Keep the disk from filling | `ww-scraper purge --older-than 30d` deletes old runs and their unnamed storages; named storages stay; `--dry-run` first |
 | A run that must not hang | `--timeout SECS` (or `"timeoutSecs"` in the input): the run ends TIMED-OUT and keeps what it stored |
 
 How this compares with a hosted platform, including what it does not do:
@@ -113,7 +116,8 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 | `KeyValueStore`| named files with their content-type (`INPUT`, `OUTPUT`, `llms.txt`...)   |
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash           |
 | `Actor`        | name + `input_schema` (validated, errors in English or Polish) + `run(ctx)` |
-| `RunContext`   | input, dataset, kv, queue, log, polite session, statistics              |
+| `RunContext`   | input, dataset, kv, queue, log, polite session, statistics; `ctx.dataset("name")`, `ctx.kv("name")`, `ctx.queue("name")` open named storages |
+| Named storage  | a storage opened by name: shared by every run that uses the name, kept by `purge`; `--dataset NAME` appends a run's items to one |
 | Run record     | `storage/runs/<id>.json`: READY / RUNNING / ABORTING / TIMING-OUT / SUCCEEDED / FAILED / ABORTED / TIMED-OUT, times, counters, live status message |
 
 `PoliteCrawler` is the only way actors fetch pages: robots.txt per origin (RFC 9309, cached, with
