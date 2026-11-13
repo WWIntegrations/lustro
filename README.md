@@ -259,7 +259,9 @@ print(c.items(rec["defaultDatasetId"], fields=["url"]))
 
 From JavaScript, [`clients/js/ww-scraper-client.mjs`](clients/js/ww-scraper-client.mjs) has the
 same calls without dependencies (Node 18+); any other language can generate a client from
-[`docs/openapi.json`](docs/openapi.json).
+[`docs/openapi.json`](docs/openapi.json). Both clients accept only a literal loopback base
+URL (`127.x.x.x` or `[::1]`), never a host name such as `localhost`, so the API token cannot
+leave the machine through DNS.
 
 ### Console
 

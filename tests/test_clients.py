@@ -118,3 +118,42 @@ console.log(JSON.stringify({{ status: run.status, items, refused, tasks: await c
     assert out.returncode == 0, out.stderr
     got = json.loads(out.stdout)
     assert got == {"status": "SUCCEEDED", "items": [{"word": "s"}, {"word": "j"}], "refused": 400, "tasks": []}
+
+
+REMOTE = ["http://127.evil.example:8765", "http://127.0.0.1.nip.io", "http://localhost:8765",
+          "http://example.com:8765", "http://[::ffff:127.0.0.1]:8765", "http://10.0.0.1:8765"]
+LOCAL = ["http://127.0.0.1:8765", "http://[::1]:8765", "http://127.1.2.3:8765"]
+
+
+@pytest.mark.parametrize("url", REMOTE)
+def test_python_client_refuses_non_loopback(url):
+    with pytest.raises(ValueError):
+        Client(url)
+    with pytest.raises(ValueError):
+        AsyncClient(url)
+
+
+@pytest.mark.parametrize("url", LOCAL)
+def test_python_client_accepts_literal_loopback(url):
+    assert Client(url).base == url
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_javascript_client_loopback_rule(tmp_path):
+    script = tmp_path / "hosts.mjs"
+    script.write_text(f"""
+import {{ Client, isLoopbackHost }} from {json.dumps(JS_CLIENT.as_uri())};
+const out = {{}};
+for (const u of JSON.parse(process.argv[2])) {{
+  try {{ new Client(u); out[u] = true; }} catch (e) {{ out[u] = false; }}
+}}
+out.octet = isLoopbackHost("127.0.0.256");
+console.log(JSON.stringify(out));
+""", encoding="utf-8")
+    urls = REMOTE + LOCAL
+    out = subprocess.run(["node", str(script), json.dumps(urls)], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    got = json.loads(out.stdout)
+    assert {u: got[u] for u in REMOTE} == dict.fromkeys(REMOTE, False)
+    assert {u: got[u] for u in LOCAL} == dict.fromkeys(LOCAL, True)
+    assert got["octet"] is False
