@@ -8,6 +8,7 @@ the main overpass-api.de instance disallows /api/ to crawlers, so ww-scraper nev
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 from urllib.parse import quote
@@ -22,6 +23,9 @@ ATTRIBUTION = "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetma
 # same machine (overpass.kumi.systems is a CNAME to it), so it never helped when the first was
 # down. overpass-api.de disallows the API in robots.txt. Another instance: the endpoint input.
 ENDPOINTS = ("https://overpass.kumi.systems/api/interpreter",)
+# Instances of your own (or another operator you trust), tried first: comma-separated https URLs
+ENV_ENDPOINTS = "WW_SCRAPER_OVERPASS"
+PROBE_TIMEOUT = 10           # /api/status answers at once on a working server
 BUSY_PAUSE = 30              # seconds to wait once when a server says it is busy (429/504)
 SERVER_TIMEOUT = 60          # seconds the query lets the Overpass server work
 CATEGORIES = {
@@ -140,16 +144,29 @@ class Places(Actor):
             raise ValueError("choose a category or give at least one tag")
         query = build_query(tags, inp, inp["maxResults"])
         own = inp["endpoint"].strip()
-        if own and not own.startswith("https://") and not ctx.allow_loopback:
-            raise ValueError("endpoint must be https")
+        env = [e.strip() for e in os.environ.get(ENV_ENDPOINTS, "").split(",") if e.strip()]
+        for e in ([own] if own else []) + env:
+            if not e.startswith("https://") and not ctx.allow_loopback:
+                raise ValueError(f"endpoint must be https: {e}")
+        endpoints = [own] if own else (env or list(self.ENDPOINTS))
         ctx.log.info(f"places: Overpass query\n{query}")
         # Overpass sends nothing until the result is ready: the read timeout must outlast the
         # time the query allows the server, or the client gives up on every busy minute.
         # One retry per instance, then the next instance: a stalled server costs minutes, not an hour.
         crawler = ctx.crawler(timeout=SERVER_TIMEOUT + 15, max_retries=1)
         data, errors = None, []
-        for endpoint in ([own] if own else list(self.ENDPOINTS)):
+        probe = ctx.crawler(timeout=PROBE_TIMEOUT, max_retries=0)
+        for endpoint in endpoints:
             ctx.check_abort()
+            # a server whose web front answers while the Overpass backend hangs used to cost
+            # two 75 s timeouts; its status page tells in seconds
+            status_url = endpoint.rsplit("/", 1)[0] + "/status"
+            st = probe.fetch(status_url, accept_types=None, read_body=False)
+            if not st.ok:
+                err = f"not answering ({status_url}: {st.error or 'HTTP ' + str(st.status)})"
+                ctx.record_failure(endpoint, err)
+                errors.append(f"{endpoint.split('/')[2]}: {err}")
+                continue
             data, err = get_json(crawler, f"{endpoint}?data={quote(query)}")
             if err and ("HTTP 429" in err or "HTTP 504" in err):
                 ctx.log.info(f"{endpoint.split('/')[2]} is busy ({err}); trying again in {BUSY_PAUSE} s")
@@ -161,7 +178,8 @@ class Places(Actor):
             errors.append(f"{endpoint.split('/')[2]}: {err}")
             data = None
         if data is None:
-            hint = "" if own else "; the public instance may be down: set endpoint to another Overpass server"
+            hint = ("" if own else f"; the public instance may be down: set the endpoint input or "
+                    f"{ENV_ENDPOINTS} to another Overpass server you are allowed to use")
             raise RuntimeError("Overpass API: " + "; ".join(errors) + hint)
         remark = (data or {}).get("remark")
         if remark and "error" in remark.lower():
@@ -178,6 +196,9 @@ class Places(Actor):
         ctx.push_data(items)
         summary = {"results": len(items), "withWebsite": sum(1 for i in items if i["website"]),
                    "withPhone": sum(1 for i in items if i["phone"]),
+                   # phones are published by businesses, but a sole trader's number is
+                   # personal data: masked unless redactPii is off (needs a legal basis)
+                   "phonesMasked": bool(inp["redactPii"]),
                    "withOpeningHours": sum(1 for i in items if i["openingHours"]),
                    "endpoint": endpoint, "attribution": ATTRIBUTION, "query": query}
         if remark:

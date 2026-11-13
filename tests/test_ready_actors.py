@@ -118,6 +118,8 @@ class _Server:
                     body = "<html><body>No board here</body></html>"
                 elif u.path == "/careers":
                     body = CAREERS
+                elif u.path == "/api/status":
+                    body, ctype = "Connected as: 1\n2 slots available now.\n", "text/plain"
                 elif u.path == "/api/interpreter":
                     srv.queries.append(parse_qs(u.query)["data"][0])
                     body, ctype = json.dumps(OVERPASS), "application/json"
@@ -363,3 +365,14 @@ def test_llms_txt_with_bom_is_valid_and_empty_file_is_not_present():
     from ww_scraper.actors.llms_txt import validate_llms_txt
     r = validate_llms_txt("﻿# Clinic\n\n> Dental care in the city.\n\n## Pages\n\n- [Home](https://e.com/)\n")
     assert r["valid"], r["issues"]
+
+
+def test_places_skips_a_hung_instance_by_its_status_page_and_reads_env(storage, apis, monkeypatch):
+    from ww_scraper.actors.places import Places
+    monkeypatch.setattr(Places, "ENDPOINTS", ("https://unused.example/api/interpreter",))
+    monkeypatch.setenv("WW_SCRAPER_OVERPASS", apis.base + "/down/api/interpreter," + apis.base + "/api/interpreter")
+    rec, items, out = _run(storage, "places", {"category": "cafe", "city": "Gdańsk"})
+    assert items and out["endpoint"] == apis.base + "/api/interpreter"
+    fails = storage.kv(rec["id"]).get("FAILED_REQUESTS")
+    assert any("not answering" in f["reason"] for f in fails)
+    assert out["phonesMasked"] is True
