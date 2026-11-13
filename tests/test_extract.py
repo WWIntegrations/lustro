@@ -72,3 +72,20 @@ def test_fallbacks_article_and_body_and_base():
 def test_malformed_html_does_not_crash():
     p = parse_html("<div><p>open <b>bold <i>both</div></span><td>cell", "https://ex.com/")
     assert "open" in p.markdown and "bold" in p.markdown
+
+
+def test_listing_of_articles_keeps_every_item_not_only_the_first():
+    items = "".join(f'<li><article class="product_pod"><h3><a href="/b{i}">Book {i}</a></h3>'
+                    f'<p class="price">£{i}.00</p></article></li>' for i in range(1, 6))
+    html = f"<html><body><nav>Menu</nav><div class='page'><h1>All products</h1><ol>{items}</ol></div></body></html>"
+    md = parse_html(html, "https://shop.example/").markdown
+    for i in range(1, 6):
+        assert f"Book {i}" in md and f"£{i}.00" in md
+
+
+def test_one_dominant_article_wins_over_teasers():
+    body = "<p>" + "Long body sentence. " * 60 + "</p>"
+    html = (f"<html><body><article><h1>Post</h1>{body}</article>"
+            "<aside><article><h3>Related one</h3></article><article><h3>Related two</h3></article></aside></body></html>")
+    md = parse_html(html, "https://blog.example/post").markdown
+    assert md.startswith("# Post") and "Related one" not in md
