@@ -30,6 +30,10 @@ FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/feed+j
 MAX_JSONLD_BLOCKS = 20
 MAX_JSONLD_CHARS = 200_000
 MAX_CONTACT_TEXT = 5000
+# Elements deeper than this are not nested further: their content joins the element at the
+# limit. Real pages stay far below it; a hostile page nested thousands deep would otherwise
+# exhaust Python's recursion limit in every tree walk.
+MAX_TREE_DEPTH = 160
 
 
 class Node:
@@ -99,6 +103,8 @@ class _TreeBuilder(HTMLParser):
             self._close_within({"td", "th"}, {"tr", "table"})
         elif tag in ("thead", "tbody", "tfoot"):
             self._close_within({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"})
+        if len(self.stack) > MAX_TREE_DEPTH and tag not in VOID:
+            return                    # flatten: keep the text, drop the extra level
         node = Node(tag, {k: (v if v is not None else "") for k, v in attrs}, self.cur)
         self.cur.children.append(node)
         if tag not in VOID:
@@ -159,17 +165,44 @@ _SHARE_LABEL = re.compile(r"(^|[\s_-])(share|sharing|sharebar|share-bar|social-s
 _SHARE_TAGS = {"div", "ul", "ol", "section", "span", "p", "aside", "figure", "li", "menu"}
 
 
+_SHARE_MAX_TEXT = 300
+_SHARE_MAX_NODES = 200
+
+
+def _small_subtree(n):
+    """(hrefs, has_button) of a small subtree, or None as soon as it holds more than
+    _SHARE_MAX_TEXT characters or _SHARE_MAX_NODES elements. The walk is bounded, so
+    checking every element of a deeply nested page stays linear, not quadratic."""
+    hrefs, button, chars, nodes, stack = [], False, 0, 0, [n]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, str):
+            chars += len(cur.strip())
+            if chars > _SHARE_MAX_TEXT:
+                return None
+            continue
+        nodes += 1
+        if nodes > _SHARE_MAX_NODES:
+            return None
+        if cur.tag == "a" and cur.attrs.get("href"):
+            hrefs.append(cur.attrs["href"])
+        elif cur.tag == "button":
+            button = True
+        stack.extend(cur.children)
+    return hrefs, button
+
+
 def _share_block(n) -> bool:
     """A short element that is a share bar: labelled as one, or made of share links."""
     if n.tag not in _SHARE_TAGS:
         return False
-    text = _WS.sub(" ", n.text()).strip()
-    if len(text) > 300:
+    small = _small_subtree(n)
+    if small is None:
         return False
+    links, button = small
     a = n.attrs
     label = " ".join(a.get(k, "") for k in ("class", "id", "aria-label", "role", "data-component"))
-    links = [x.attrs.get("href", "") for x in n.iter() if x.tag == "a" and x.attrs.get("href")]
-    if _SHARE_LABEL.search(label) and (links or any(x.tag == "button" for x in n.iter())):
+    if _SHARE_LABEL.search(label) and (links or button):
         return True
     shares = sum(1 for h in links if _SHARE_HREF.search(h))
     return shares >= 2 and shares * 2 >= len(links)
@@ -267,11 +300,21 @@ class _MD:
                 lines.append(ln if nested else f"{pad}  {ln.strip()}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _own_rows(table):
+        """The rows of this table, not of tables nested in its cells: walking into nested
+        tables made every level render the levels below it again (exponential time)."""
+        stack = list(reversed([c for c in table.children if isinstance(c, Node)]))
+        while stack:
+            cur = stack.pop()
+            if cur.tag == "tr":
+                yield cur
+            elif cur.tag != "table":
+                stack.extend(reversed([c for c in cur.children if isinstance(c, Node)]))
+
     def table(self, n) -> str:
         rows = []
-        for tr in n.iter():
-            if tr.tag != "tr":
-                continue
+        for tr in self._own_rows(n):
             cells = [_WS.sub(" ", self.inline(c)).strip().replace("|", "\\|")
                      for c in tr.children if isinstance(c, Node) and c.tag in ("td", "th")]
             if cells:

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Hostile markup can no longer stall or crash extraction: tables nested in table cells
+  used to be rendered again at every level above them (20 levels took 7 s, each further
+  level doubled it), and pages nested thousands of elements deep hit Python's recursion
+  limit. Tables now walk only their own rows, the tree stops nesting at 160 levels, and
+  the share-bar check walks at most 200 elements per candidate.
 - Markdown leaves out share bars (elements labelled as share tools, or made of links that
   only post the page to a social network) and Cloudflare's obfuscated e-mail links
   (`/cdn-cgi/l/email-protection`), which carry an encoded address. A class name alone
