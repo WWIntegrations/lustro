@@ -95,6 +95,12 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - Schedules: `ww-scraper schedule --task NAME` prints a cron line and plist that run the
   task; `@hourly`, `@daily`, `@weekly`, `@monthly` and `@yearly` are accepted; the output
   says which time zone applies and `--tz` adds a `CRON_TZ` line. Still prints only.
+- Export views on `ww-scraper export` and `GET /v2/datasets/<id>/items`: `omit` (keys or
+  dotted paths), `flatten` (nested objects become `a.b` keys, for CSV and XLSX), `unwind
+  FIELD` (one row per list element, object elements merged into the row), `desc` (newest
+  first), `clean` (no `#hidden` keys, no empty items); `fields` now takes dotted paths.
+- `--format rss` (API `format=rss`): an RSS 2.0 feed from items with a title, name or url
+  field, with `pubDate` from the first date-like field; only http(s) values become links.
 
 ## 0.9.0 (2026-11-12)
 

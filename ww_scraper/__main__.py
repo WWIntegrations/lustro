@@ -2,7 +2,8 @@
 
     ww-scraper run <actor> --input '<json>' [--timeout SECS] [--storage DIR] [--resume RUN_ID] [--webhook URL]
     ww-scraper actors                     list actors and their input fields
-    ww-scraper export <dataset-id> [--format json|jsonl|csv|xlsx|xml|html] [--fields a,b] [--out FILE]
+    ww-scraper export <dataset-id> [--format json|jsonl|csv|xlsx|xml|html|rss] [--fields a,b]
+                      [--omit a,b.c] [--flatten] [--unwind FIELD] [--desc] [--clean] [--out FILE]
     ww-scraper purge --older-than 30d [--dry-run]   delete old runs and their unnamed storages
     ww-scraper serve [--port 8765]        local API on 127.0.0.1
     ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
@@ -96,8 +97,13 @@ def _parser():
 
     e = sub.add_parser("export", help="export a dataset")
     e.add_argument("dataset")
-    e.add_argument("--format", default="json", choices=["json", "jsonl", "csv", "xlsx", "xml", "html"])
-    e.add_argument("--fields", default=None, help="comma-separated keys to keep, in this order")
+    e.add_argument("--format", default="json", choices=["json", "jsonl", "csv", "xlsx", "xml", "html", "rss"])
+    e.add_argument("--fields", default=None, help="comma-separated keys (or dotted paths) to keep, in this order")
+    e.add_argument("--omit", default=None, help="comma-separated keys or dotted paths to drop")
+    e.add_argument("--flatten", action="store_true", help="nested objects become dotted keys (a.b)")
+    e.add_argument("--unwind", default=None, metavar="FIELD", help="one row per element of this list field")
+    e.add_argument("--desc", action="store_true", help="newest items first")
+    e.add_argument("--clean", action="store_true", help="drop '#hidden' keys and empty items")
     e.add_argument("--out", default=None, help="write to this file (xlsx needs it unless stdout is redirected)")
     e.add_argument("--storage", default=None)
 
@@ -290,8 +296,15 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "export":
-        fields = [f.strip() for f in a.fields.split(",")] if a.fields else None
-        body, _ = Storage(a.storage).dataset(a.dataset).export(a.format, fields=fields)
+        from .storage import StorageError
+        split = lambda v: [f.strip() for f in v.split(",")] if v else None
+        try:
+            body, _ = Storage(a.storage).dataset(a.dataset).export(
+                a.format, fields=split(a.fields), omit=split(a.omit), flatten=a.flatten,
+                unwind=a.unwind, desc=a.desc, clean=a.clean)
+        except StorageError as e:
+            print(str(e), file=sys.stderr)
+            return 2
         if a.out:
             with open(a.out, "wb") as fh:
                 fh.write(body)

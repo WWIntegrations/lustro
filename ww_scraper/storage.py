@@ -130,7 +130,7 @@ def _csv_cell(v) -> str:
     return v
 
 
-EXPORT_FORMATS = ("json", "jsonl", "csv", "xlsx", "xml", "html")
+EXPORT_FORMATS = ("json", "jsonl", "csv", "xlsx", "xml", "html", "rss")
 # Characters XML 1.0 cannot hold at all (they are not escapable): dropped, never sent raw.
 _XML_INVALID = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 _XLSX_CELL_MAX = 32767          # Excel refuses longer cells
@@ -255,6 +255,161 @@ def _html(items, cols, title: str) -> bytes:
             f"<tbody>{body}</tbody></table></body></html>\n").encode("utf-8")
 
 
+# --- export views ----------------------------------------------------------------------
+
+def _get_path(obj, path):
+    """obj["a"]["b"] for "a.b"; a key that itself contains dots wins over the path."""
+    if path in obj:
+        return True, obj[path]
+    cur = obj
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return False, None
+        cur = cur[part]
+    return True, cur
+
+
+def _omit_path(obj, path):
+    if path in obj:
+        return {k: v for k, v in obj.items() if k != path}
+    head, _, rest = path.partition(".")
+    if rest and isinstance(obj.get(head), dict):
+        return dict(obj, **{head: _omit_path(obj[head], rest)})
+    return obj
+
+
+def flatten_item(obj, prefix="") -> dict:
+    """Nested objects to dotted keys: {"a": {"b": 1}} -> {"a.b": 1}. Lists stay values."""
+    out = {}
+    for k, v in obj.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict) and v:
+            out.update(flatten_item(v, key + "."))
+        else:
+            out[key] = v
+    return out
+
+
+def unwind_items(items, field):
+    """One row per element of item[field]. Object elements are merged into the row,
+    other elements replace the field; an object field is merged; anything else, or a
+    missing field, leaves the item as it is."""
+    for it in items:
+        v = it.get(field)
+        rest = {k: x for k, x in it.items() if k != field}
+        if isinstance(v, list):
+            if not v:
+                yield rest
+            for el in v:
+                yield dict(rest, **el) if isinstance(el, dict) else dict(rest, **{field: el})
+        elif isinstance(v, dict):
+            yield dict(rest, **v)
+        else:
+            yield it
+
+
+def apply_view(items, *, fields=None, omit=None, flatten=False, unwind=None, clean=False):
+    """The export view: clean (no '#hidden' keys, no empty items), unwind, omit, flatten,
+    then fields (dotted paths reach into objects)."""
+    out = []
+    for it in (unwind_items(items, unwind) if unwind else items):
+        if clean:
+            it = {k: v for k, v in it.items() if not str(k).startswith("#")}
+            if not it:
+                continue
+        for path in omit or ():
+            it = _omit_path(it, path)
+        if flatten:
+            it = flatten_item(it)
+        if fields:
+            picked = {}
+            for f in fields:
+                found, v = _get_path(it, f)
+                if found:
+                    picked[f] = v
+            it = picked
+        out.append(it)
+    return out
+
+
+_RSS_TITLE = ("title", "name", "headline", "organization", "url")
+_RSS_LINK = ("url", "link", "applyUrl", "website", "startUrl", "osmUrl", "finalUrl")
+_RSS_DATE = ("date", "postedAt", "datePublished", "published", "publishedAt", "pubDate",
+             "updated", "updatedAt", "dateModified", "lastModified", "createdAt", "startDate")
+_RSS_TEXT = ("description", "summary", "text", "snippet", "markdown")
+
+
+def _rss_date(value):
+    import email.utils
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        ts = value / 1000 if value > 1e11 else value
+        return email.utils.formatdate(ts, usegmt=True)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    v = value.strip()
+    try:
+        d = datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            d = email.utils.parsedate_to_datetime(v)
+        except (TypeError, ValueError, IndexError):
+            return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    return email.utils.format_datetime(d.astimezone(datetime.timezone.utc), usegmt=True)
+
+
+def _first(it, keys):
+    for k in keys:
+        v = it.get(k)
+        if v not in (None, "", [], {}):
+            return v
+    return None
+
+
+def _rss(items, title: str) -> bytes:
+    """RSS 2.0 from items with a title-, url- or date-like field. Only http(s) values
+    become links; every value is escaped; XML-invalid characters are dropped."""
+    def text(v, n=None):
+        s = _XML_INVALID.sub("", _text(v))
+        return _xml_escape(s[:n] if n else s)
+
+    def http(v):
+        return isinstance(v, str) and v.lower().startswith(("http://", "https://"))
+
+    entries = []
+    for it in items:
+        t, link = _first(it, _RSS_TITLE), _first(it, _RSS_LINK)
+        link = link if http(link) else None
+        if t is None and link is None:
+            continue
+        parts = [f"<title>{text(t if t is not None else link, 500)}</title>"]
+        if link:
+            parts.append(f"<link>{text(link)}</link>")
+        guid = link or it.get("id")
+        if guid:
+            parts.append(f'<guid isPermaLink="{"true" if link else "false"}">{text(guid)}</guid>')
+        when = _rss_date(_first(it, _RSS_DATE))
+        if when:
+            parts.append(f"<pubDate>{when}</pubDate>")
+        desc = _first(it, _RSS_TEXT)
+        if desc is not None:
+            parts.append(f"<description>{text(desc, 2000)}</description>")
+        entries.append("<item>" + "".join(parts) + "</item>")
+    if items and not entries:
+        raise StorageError("rss needs items with a title, name or url field")
+    channel_link = next((_first(i, _RSS_LINK) for i in items if http(_first(i, _RSS_LINK))), None)
+    origin = ""
+    if channel_link:
+        sp = urlsplit(channel_link)
+        origin = f"{sp.scheme}://{sp.netloc}/"
+    body = ('<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>'
+            f"<title>{text(title)}</title><link>{text(origin or 'http://127.0.0.1/')}</link>"
+            f"<description>{text(title)} from ww-scraper</description>"
+            + "".join(entries) + "</channel></rss>\n")
+    return body.encode("utf-8")
+
+
 class Dataset:
     """Append-only list of JSON objects (one per line)."""
 
@@ -309,15 +464,27 @@ class Dataset:
     def count(self) -> int:
         return sum(1 for _ in self.iter_items())
 
-    def export(self, fmt: str = "json", offset: int = 0, limit=None, fields=None):
-        """Return (bytes, content_type) in json | jsonl | csv | xlsx | xml | html.
-        fields: keep only these keys, in this order."""
+    def export(self, fmt: str = "json", offset: int = 0, limit=None, fields=None, *,
+               omit=None, flatten=False, unwind=None, desc=False, clean=False):
+        """Return (bytes, content_type) in json | jsonl | csv | xlsx | xml | html | rss.
+        fields: keep only these keys (dotted paths reach into objects), in this order;
+        omit: drop these keys or dotted paths; flatten: nested objects to dotted keys;
+        unwind: one row per element of this list field; desc: newest first;
+        clean: drop '#hidden' keys and items left empty."""
         if fmt not in EXPORT_FORMATS:
             raise StorageError(f"unsupported format: {fmt!r} ({', '.join(EXPORT_FORMATS)})")
-        items = self.items(offset, limit)
-        if fields:
-            fields = [f for f in fields if f]
-            items = [{f: it[f] for f in fields if f in it} for it in items]
+        if desc:
+            items = self.items()[::-1]
+            items = items[offset:offset + limit if limit is not None else None]
+        else:
+            items = self.items(offset, limit)
+        fields = [f for f in (fields or []) if f]
+        omit = [f for f in (omit or []) if f]
+        if fields or omit or flatten or unwind or clean:
+            items = apply_view(items, fields=fields, omit=omit, flatten=flatten,
+                               unwind=unwind or None, clean=clean)
+        if fmt == "rss":
+            return _rss(items, f"Dataset {self.id}"), "application/rss+xml; charset=utf-8"
         if fmt == "json":
             return (json.dumps(items, ensure_ascii=False, indent=2).encode("utf-8"),
                     "application/json; charset=utf-8")
