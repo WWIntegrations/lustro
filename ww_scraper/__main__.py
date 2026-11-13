@@ -10,6 +10,7 @@
     ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
     ww-scraper schedule --task <name> --cron @daily                 (prints only)
     ww-scraper task save <name> <actor> --input '<json>' | task list | task run <name>
+    ww-scraper mcp [--read-only]          MCP server on stdio for a local agent (opt-in)
     ww-scraper testsite [--port 8766]     local fixture website for demos/tests
     ww-scraper "<query>" [...]            v0.1 media search (unchanged)
 
@@ -26,7 +27,7 @@ import sys
 from . import search
 
 COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite", "init", "runs", "report",
-            "purge", "task"}
+            "purge", "task", "mcp"}
 
 
 def _legacy(argv) -> int:
@@ -126,6 +127,11 @@ def _parser():
     s.add_argument("--max-runs", type=int, default=0, metavar="N",
                    help="run at most N runs at once; the others wait READY (default: no cap)")
     common(s)
+
+    mc = sub.add_parser("mcp", help="MCP server on stdio for a local agent (opt-in; see README)")
+    mc.add_argument("--storage", default=None, help="storage dir (default ./storage or $WW_SCRAPER_STORAGE_DIR)")
+    mc.add_argument("--lang", default=None, choices=["en", "pl"], help="language of validation errors")
+    mc.add_argument("--read-only", action="store_true", help="expose runs and datasets only, no call_actor")
 
     sc = sub.add_parser("schedule", help="print a cron line and a launchd plist (installs nothing)")
     sc.add_argument("actor", nargs="?", default=None)
@@ -391,6 +397,17 @@ def main(argv=None) -> int:
         except KeyboardInterrupt:
             pass
         return 0
+
+    if a.cmd == "mcp":
+        from .mcp import MCPServer
+        channel = sys.stdout
+        sys.stdout = sys.stderr              # anything printed by accident stays off the protocol channel
+        try:
+            return MCPServer(Storage(a.storage), read_only=a.read_only, lang=a.lang, out=channel).serve(sys.stdin)
+        except KeyboardInterrupt:
+            return 0
+        finally:
+            sys.stdout = channel
 
     if a.cmd == "serve":
         from .api import ScraperAPI
