@@ -89,3 +89,32 @@ def test_one_dominant_article_wins_over_teasers():
             "<aside><article><h3>Related one</h3></article><article><h3>Related two</h3></article></aside></body></html>")
     md = parse_html(html, "https://blog.example/post").markdown
     assert md.startswith("# Post") and "Related one" not in md
+
+
+SHARE_PAGE = """<html><head><title>Q&amp;amp;A: Likes &amp;amp; Hashtags</title>
+<meta name="description" content="Tips &amp;amp; tricks"></head><body><main><article>
+<h1>Q&amp;A</h1>
+<div class="article-share"><a href="https://www.linkedin.com/shareArticle?url=x">LinkedIn</a>
+<a href="#">Copy link</a></div>
+<ul><li><a href="https://twitter.com/intent/tweet?url=x">Post</a></li>
+<li><a href="https://www.facebook.com/sharer/sharer.php?u=x">Share</a></li></ul>
+<p>Write to <a href="/cdn-cgi/l/email-protection#a1c4d9">[email&#160;protected]</a> today.</p>
+<p>The market share of short video grew again this year, and the text goes on long enough
+to be an article body.</p>
+<div class="market-share"><p>Market share was 40 percent.</p></div>
+</article></main></body></html>"""
+
+
+def test_share_bars_and_obfuscated_email_links_are_dropped():
+    p = parse_html(SHARE_PAGE, "https://e.com/a")
+    md = p.markdown
+    assert "shareArticle" not in md and "intent/tweet" not in md and "sharer" not in md
+    assert "email-protection" not in md and "Write to" in md
+    assert "market share of short video" in md
+    assert "Market share was 40 percent." in md           # a class name alone is not a share bar
+
+
+def test_double_escaped_title_and_description_are_decoded():
+    p = parse_html(SHARE_PAGE, "https://e.com/a")
+    assert p.title == "Q&A: Likes & Hashtags"
+    assert p.description == "Tips & tricks"

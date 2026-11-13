@@ -8,6 +8,7 @@ parse_html(html, base_url) -> Page with:
 """
 from __future__ import annotations
 
+import html as _html
 import json
 import re
 from dataclasses import dataclass, field
@@ -145,6 +146,35 @@ def _abs(base, href):
         return ""
 
 
+# share bars: links that only post the page somewhere else, and Cloudflare's obfuscated
+# e-mail links (cdn-cgi/l/email-protection), which carry an encoded address
+_SHARE_HREF = re.compile(
+    r"facebook\.com/(sharer|share\.php|dialog/share)|twitter\.com/(intent|share)|x\.com/intent|"
+    r"linkedin\.com/(sharing|shareArticle|cws/share)|pinterest\.[a-z.]+/pin/create|"
+    r"reddit\.com/submit|wa\.me/\?|api\.whatsapp\.com/send|whatsapp://send|t\.me/share|"
+    r"telegram\.me/share|bsky\.app/intent|threads\.net/intent|mailto:\?|"
+    r"/cdn-cgi/l/email-protection", re.I)
+_SHARE_LABEL = re.compile(r"(^|[\s_-])(share|sharing|sharebar|share-bar|social-share|"
+                          r"share-tools|share-buttons|article-share|post-share)([\s_-]|$)", re.I)
+_SHARE_TAGS = {"div", "ul", "ol", "section", "span", "p", "aside", "figure", "li", "menu"}
+
+
+def _share_block(n) -> bool:
+    """A short element that is a share bar: labelled as one, or made of share links."""
+    if n.tag not in _SHARE_TAGS:
+        return False
+    text = _WS.sub(" ", n.text()).strip()
+    if len(text) > 300:
+        return False
+    a = n.attrs
+    label = " ".join(a.get(k, "") for k in ("class", "id", "aria-label", "role", "data-component"))
+    links = [x.attrs.get("href", "") for x in n.iter() if x.tag == "a" and x.attrs.get("href")]
+    if _SHARE_LABEL.search(label) and (links or any(x.tag == "button" for x in n.iter())):
+        return True
+    shares = sum(1 for h in links if _SHARE_HREF.search(h))
+    return shares >= 2 and shares * 2 >= len(links)
+
+
 class _MD:
     def __init__(self, base):
         self.base = base
@@ -164,6 +194,8 @@ class _MD:
             return ""
         if t == "header" and not _inside(n, ("article", "main")):
             return ""
+        if _share_block(n):
+            return ""
         if t in ("h1", "h2", "h3", "h4", "h5", "h6"):
             txt = self.inline(n).strip()
             return f"\n\n{'#' * int(t[1])} {txt}\n\n" if txt else ""
@@ -174,7 +206,7 @@ class _MD:
         if t == "a":
             txt = self.inline(n).strip()
             href = _abs(self.base, n.attrs.get("href"))
-            if href.lower().startswith(("mailto:", "tel:")):
+            if href.lower().startswith(("mailto:", "tel:")) or "/cdn-cgi/l/email-protection" in href:
                 return txt
             return f"[{txt}]({href})" if (txt and href) else txt
         if t in ("strong", "b"):
@@ -387,6 +419,13 @@ def _jsonld_types(obj, out):
             _jsonld_types(obj["@graph"], out)
 
 
+_ENTITY = re.compile(r"&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]{1,31});", re.I)
+
+
+def _unescape_left(s: str) -> str:
+    return _html.unescape(s) if s and _ENTITY.search(s) else s
+
+
 def parse_html(html: str, base_url: str) -> Page:
     root = build_tree(html or "")
     page = Page(url=base_url)
@@ -453,6 +492,10 @@ def parse_html(html: str, base_url: str) -> Page:
         elif t in ("footer", "address") and len(page.contact_text) < MAX_CONTACT_TEXT:
             # contact details usually live outside <main>, which the markdown keeps to
             page.contact_text += _WS.sub(" ", n.text()).strip()[:MAX_CONTACT_TEXT] + "\n"
+    # titles double-escaped by the site's CMS ("Q&amp;amp;A" in the source) read "Q&amp;A"
+    # after parsing; a literal entity in a title is never what the author meant
+    page.title = _unescape_left(page.title)
+    page.description = _unescape_left(page.description)
     page.site_name = page.og.get("og:site_name", "")
     page.markdown = to_markdown(root, base)
     page.word_count = len(re.findall(r"\w+", re.sub(r"\]\([^)]*\)", "]", page.markdown)))
