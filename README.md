@@ -119,7 +119,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 | `KeyValueStore`| named files with their content-type (`INPUT`, `OUTPUT`, `llms.txt`...)   |
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash           |
 | `Actor`        | name + `input_schema` (validated, errors in English or Polish) + `run(ctx)` |
-| `RunContext`   | input, dataset, kv, queue, log, polite session, statistics; `ctx.dataset("name")`, `ctx.kv("name")`, `ctx.queue("name")` open named storages |
+| `RunContext`   | input, dataset, kv, queue, log, polite session, statistics, `use_state()` (saved every 60 s and at the end, back on resume); `ctx.dataset("name")`, `ctx.kv("name")`, `ctx.queue("name")` open named storages |
 | Named storage  | a storage opened by name: shared by every run that uses the name, kept by `purge`; `--dataset NAME` appends a run's items to one |
 | Run record     | `storage/runs/<id>.json`: READY / RUNNING / ABORTING / TIMING-OUT / SUCCEEDED / FAILED / ABORTED / TIMED-OUT, times, counters, live status message |
 

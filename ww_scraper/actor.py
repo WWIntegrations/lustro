@@ -8,6 +8,7 @@ share the run id. The validated input is stored under the key INPUT.
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
 import sys
@@ -235,7 +236,9 @@ RUN_OPTIONS_SCHEMA = {
 }
 STATUS_MESSAGE_MAX = 500
 BUDGETS = {"maxItems": "items", "maxRequests": "requests", "maxBytes": "bytes"}
-MAX_CALL_DEPTH = 4               # ctx.call_actor() nesting: a run calling itself stops here
+MAX_CALL_DEPTH = 4
+STATE_KEY = "STATE"
+STATE_PERSIST_SECS = 60.0               # ctx.call_actor() nesting: a run calling itself stops here
 
 # run id -> RunContext of every run executing in this process (for abort requests)
 _LIVE: dict = {}
@@ -339,6 +342,9 @@ class RunContext:
         opts = self.record.get("options") or {}
         self.budgets = {k: opts[k] for k in BUDGETS if opts.get(k)}
         self.budget_hit = None           # "maxItems=100" once a budget stopped the run
+        self._state = None
+        self._state_key = STATE_KEY
+        self._state_timer = None
         self._rec_lock = threading.Lock()
         self.failures: list = []
         self.stats = {"requests": 0, "retries": 0, "robotsBlocked": 0, "ssrfBlocked": 0,
@@ -423,6 +429,45 @@ class RunContext:
             self.timed_out = True
         self.abort_event.set()
         self._save_record()
+
+    # -- actor state ------------------------------------------------------------------
+    def use_state(self, default=None, key: str = STATE_KEY, persist_secs: float = STATE_PERSIST_SECS) -> dict:
+        """A dict the actor may change freely. It is saved to the run's key-value store
+        under `key` every persist_secs seconds and when the run ends in any status
+        (aborted, timed out or failed too), and loaded back when the run is resumed."""
+        if self._state is None:
+            self._state_key = key
+            saved = self.kv.get(key)
+            self._state = saved if isinstance(saved, dict) else dict(default or {})
+            if persist_secs and persist_secs > 0:
+                self._schedule_persist(float(persist_secs))
+        return self._state
+
+    def _schedule_persist(self, every: float) -> None:
+        def tick():
+            self.persist_state()
+            self._schedule_persist(every)
+        self._state_timer = threading.Timer(every, tick)
+        self._state_timer.daemon = True
+        self._state_timer.start()
+
+    def persist_state(self) -> None:
+        if self._state is None:
+            return
+        for _ in range(5):
+            try:
+                data = json.loads(json.dumps(self._state, default=str))
+                break
+            except RuntimeError:             # changed by the actor while copying: try again
+                time.sleep(0.01)
+        else:
+            return
+        self.kv.set(self._state_key, data)
+
+    def _stop_state(self) -> None:
+        if self._state_timer is not None:
+            self._state_timer.cancel()
+        self.persist_state()
 
     def push_data(self, items) -> int:
         if isinstance(items, dict):
@@ -565,6 +610,7 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
     finally:
         if timer is not None:
             timer.cancel()
+        ctx._stop_state()
         with _LIVE_LOCK:
             _LIVE.pop(rec["id"], None)
     if status == "ABORTED" and ctx.budget_hit and not ctx.timed_out_chain \
