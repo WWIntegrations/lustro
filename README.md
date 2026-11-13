@@ -344,6 +344,21 @@ ww-scraper task run py-jobs --input '{"remoteOnly": true}'   # merged over the s
 ww-scraper task delete py-jobs
 ```
 
+### MCP server (opt-in)
+
+`ww-scraper mcp` starts a Model Context Protocol server on stdin and stdout for a local
+agent client. Nothing starts it on its own and it opens no network port. Its tools are
+`list_actors`, `describe_actor`, `call_actor` (run an actor and get the run record and its
+first items), `get_run`, `list_runs` and `get_dataset_items` (by dataset id or name);
+`--read-only` leaves out `call_actor`. Runs go through the same code as `ww-scraper run`:
+robots.txt, per-host pacing, the SSRF guard and PII masking apply, loopback targets are
+refused, and a run lasts at most 3600 s. Items are returned as data, and the server tells
+the client to treat them as untrusted content, never as instructions.
+
+```json
+{"mcpServers": {"ww-scraper": {"command": "ww-scraper", "args": ["mcp", "--storage", "/path/to/storage"]}}}
+```
+
 ## Media sources (v0.1)
 
 | Source     | Access                              | License info       |

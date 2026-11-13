@@ -72,6 +72,11 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- `ww-scraper mcp`: an opt-in Model Context Protocol server over stdio (JSON-RPC 2.0, one
+  message per line) with `list_actors`, `describe_actor`, `call_actor`, `get_run`,
+  `list_runs` and `get_dataset_items`; `--read-only` drops `call_actor`. Runs use the same
+  gates as the CLI, loopback stays refused, results are capped (1000 items, 200,000
+  characters, 3600 s) and marked as untrusted content. No network port is opened.
 - New actors, each built on published structured data or an official API:
   `articles` (schema.org Article, NewsArticle, BlogPosting and subtypes, with Open Graph
   article tags as a fallback; `publishedAfter`, optional Markdown body, rich-result gaps in
