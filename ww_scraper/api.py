@@ -44,6 +44,7 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+import math
 import os
 import re
 import secrets
@@ -52,7 +53,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .actor import TERMINAL, InputError, _now, execute_run, prepare_run, request_abort
+from .actor import (TERMINAL, InputError, _now, discard_secrets, execute_run, loads_strict, prepare_run,
+                    request_abort)
 from .actors import ACTORS, get_actor
 from .compliance import is_loopback_host
 from .storage import Storage, StorageError, valid_id, valid_key
@@ -141,6 +143,7 @@ class ScraperAPI:
             self.storage.save_run(rec)
             while not self._slots.acquire(timeout=0.2):
                 if abort.is_set():       # aborted while waiting: it never starts
+                    discard_secrets(rec["id"])
                     rec.update(status="ABORTED", statusMessage="aborted before it started",
                                finishedAt=_now())
                     self.storage.save_run(rec)
@@ -367,14 +370,26 @@ class _Handler(BaseHTTPRequestHandler):
         return False
 
     # -- PUT / DELETE -------------------------------------------------------------------
-    def _body(self):
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            return None, self._error(400, "invalid-request", "bad Content-Length")
+    def _content_length(self):
+        """(length, False), or (None, True) once an error answer was sent. Only plain
+        digits are a length: int() also takes "-1" (and rfile.read(-1) reads to the end,
+        past MAX_BODY), "+5", " 5 " and "1_0"."""
+        raw = (self.headers.get("Content-Length") or "0").strip()
+        if not raw.isascii() or not raw.isdigit():
+            self._error(400, "invalid-request", "bad Content-Length")
+            return None, True
+        length = int(raw)
         if length > MAX_BODY:
-            return None, self._error(413, "payload-too-large", "body over 1 MB")
-        return (self.rfile.read(length) if length else b""), None
+            self._error(413, "payload-too-large", "body over 1 MB")
+            return None, True
+        return length, False
+
+    def _body(self):
+        """(body, False), or (None, True) once an error answer was sent."""
+        length, failed = self._content_length()
+        if failed:
+            return None, True
+        return (self.rfile.read(length) if length else b""), False
 
     def do_PUT(self):
         if not self._guard():
@@ -388,13 +403,13 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(400, "invalid-request", "invalid store id or key")
         if self.ctx.storage.run_is_live(sid):
             return self._error(409, "run-not-finished", "the store belongs to a run that is still going")
-        body, err = self._body()
-        if err is not None:
-            return err
+        body, failed = self._body()
+        if failed:
+            return None
         ctype = self.headers.get("Content-Type") or "application/octet-stream"
         if ctype.split(";")[0].strip().lower() == "application/json":
             try:
-                json.loads(body or b"null")
+                loads_strict(body or b"null")
             except ValueError:
                 return self._error(400, "invalid-input", "body is not valid JSON")
         self.ctx.storage.kv(sid).set(key, body, ctype)
@@ -470,15 +485,11 @@ class _Handler(BaseHTTPRequestHandler):
         actor = get_actor(unquote(m.group(1)))
         if actor is None:
             return self._error(404, "not-found", f"actor {m.group(1)!r} not found")
+        raw, failed = self._body()
+        if failed:
+            return None
         try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            return self._error(400, "invalid-request", "bad Content-Length")
-        if length > MAX_BODY:
-            return self._error(413, "payload-too-large", "input over 1 MB")
-        raw = self.rfile.read(length) if length else b""
-        try:
-            data = json.loads(raw) if raw.strip() else {}
+            data = loads_strict(raw) if raw.strip() else {}
         except ValueError:
             return self._error(400, "invalid-input", "body is not valid JSON")
         try:
@@ -497,13 +508,15 @@ class _Handler(BaseHTTPRequestHandler):
         return self._started(rec, q)
 
     def _read_json(self):
-        body, err = self._body()
-        if err is not None:
-            return None, err
+        """(data, False), or (None, True) once an error answer was sent."""
+        body, failed = self._body()
+        if failed:
+            return None, True
         try:
-            return (json.loads(body) if body.strip() else {}), None
+            return (loads_strict(body) if body.strip() else {}), False
         except ValueError:
-            return None, self._error(400, "invalid-input", "body is not valid JSON")
+            self._error(400, "invalid-input", "body is not valid JSON")
+            return None, True
 
     def _options(self, q):
         """Run options from query parameters; raises ValueError with a message."""
@@ -513,6 +526,8 @@ class _Handler(BaseHTTPRequestHandler):
                 options["timeoutSecs"] = float(q["timeout"])
             except ValueError:
                 raise ValueError("timeout must be a number of seconds") from None
+            if not math.isfinite(options["timeoutSecs"]):       # "nan", "inf"
+                raise ValueError("timeout must be a number of seconds")
         if q.get("dataset"):
             options["datasetName"] = q["dataset"]
         for key in ("maxItems", "maxRequests", "maxBytes"):
@@ -523,7 +538,7 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError(f"{key} must be a whole number") from None
         if q.get("checks"):
             try:
-                options["checks"] = json.loads(q["checks"])
+                options["checks"] = loads_strict(q["checks"])
             except ValueError:
                 raise ValueError("checks must be a JSON object") from None
         return options
@@ -531,9 +546,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _task_post(self, path, q):
         from .tasks import TaskError, save_task, task_run_args
         st = self.ctx.storage
-        data, err = self._read_json()
-        if err is not None:
-            return err
+        data, failed = self._read_json()
+        if failed:
+            return None
         try:
             if path == "/v2/actor-tasks":
                 if not isinstance(data, dict):
@@ -558,9 +573,9 @@ class _Handler(BaseHTTPRequestHandler):
         actor = get_actor(name)
         if actor is None:
             return self._error(404, "not-found", f"actor {name!r} not found")
-        data, err = self._read_json()
-        if err is not None:
-            return err
+        data, failed = self._read_json()
+        if failed:
+            return None
         try:
             options = self._options(q)
         except ValueError as e:
@@ -613,6 +628,8 @@ class _Handler(BaseHTTPRequestHandler):
             wait = min(float(q.get("waitForFinish", 0)), MAX_WAIT)
         except ValueError:
             wait = 0
+        if not math.isfinite(wait):          # min(nan, MAX_WAIT) is nan
+            wait = 0
         if wait > 0:
             self.ctx.runs[rec["id"]][0].join(wait)
         return self._json(201, {"data": self.ctx.storage.load_run(rec["id"])})
@@ -621,8 +638,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _webhooks(q):
         if not q.get("webhooks"):
             return None
-        hooks = json.loads(base64.b64decode(q["webhooks"]))
-        if not isinstance(hooks, list):
+        from .webhooks import validate
+        hooks = loads_strict(base64.b64decode(q["webhooks"]))
+        if validate(hooks):
             raise ValueError
         return hooks
 

@@ -96,14 +96,46 @@ def dispatch(record, webhooks, *, allow_loopback=False, allow_hosts=None, secret
                "eventData": {"actorId": record.get("actId"), "actorRunId": record.get("id")},
                "createdAt": record.get("finishedAt") or record.get("startedAt") or record.get("createdAt"),
                "resource": record}
-    for wh in webhooks or []:
+    if not isinstance(webhooks, (list, tuple)):
+        return [f"webhook {event}: skipped, webhooks must be a list"] if webhooks else lines
+    for i, wh in enumerate(webhooks):
+        problem = entry_error(wh)
+        if problem:
+            lines.append(f"webhook {event}: entry {i} skipped, {problem}")
+            continue
         if isinstance(wh, str):
             wh = {"requestUrl": wh}
-        url = wh.get("requestUrl", "")
+        url = wh["requestUrl"]
         types = wh.get("eventTypes") or [*EVENTS.values(), CHECKS_FAILED]
         if event not in types:
             continue
-        ok, info = send(url, payload, secret=secret, allow_hosts=allow_hosts,
-                        allow_loopback=allow_loopback)
-        lines.append(f"webhook {event} -> {urlparse(url).hostname}: {info}")
+        try:
+            ok, info = send(url, payload, secret=secret, allow_hosts=allow_hosts,
+                            allow_loopback=allow_loopback)
+            host = urlparse(url).hostname
+        except ValueError:                    # "http://[::1" and other unparsable URLs
+            ok, info, host = False, "refused: invalid URL", None
+        lines.append(f"webhook {event} -> {host}: {info}")
     return lines
+
+
+def entry_error(wh):
+    """Why one webhook entry is unusable, or None. An entry is a URL string or
+    {"requestUrl": str, "eventTypes"?: [str, ...]}."""
+    if isinstance(wh, str):
+        return None if wh else "empty URL"
+    if not isinstance(wh, dict):
+        return "expected a URL string or an object with requestUrl"
+    if not isinstance(wh.get("requestUrl"), str) or not wh["requestUrl"]:
+        return "requestUrl must be a non-empty string"
+    types = wh.get("eventTypes")
+    if types is not None and not (isinstance(types, list) and all(isinstance(t, str) for t in types)):
+        return "eventTypes must be a list of strings"
+    return None
+
+
+def validate(webhooks) -> list:
+    """Error messages for a webhooks list (empty when it is usable)."""
+    if not isinstance(webhooks, list):
+        return ["webhooks must be a list"]
+    return [f"webhooks[{i}]: {e}" for i, e in ((i, entry_error(w)) for i, w in enumerate(webhooks)) if e]

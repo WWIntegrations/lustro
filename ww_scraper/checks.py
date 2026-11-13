@@ -11,8 +11,15 @@ silently.
 """
 from __future__ import annotations
 
+import math
+
 KNOWN = {"minItems", "maxItems", "maxFailed", "maxFailedRatio", "fieldFillRate", "statuses",
          "maxDurationSecs"}
+
+
+def _number(v) -> bool:
+    """A finite int or float (NaN compares False with every bound, so it is refused)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 def validate(checks) -> list:
@@ -23,13 +30,12 @@ def validate(checks) -> list:
         if k in checks and (not isinstance(checks[k], int) or isinstance(checks[k], bool) or checks[k] < 0):
             errors.append(f"checks.{k}: expected a whole number >= 0")
     for k in ("maxFailedRatio", "maxDurationSecs"):
-        if k in checks and (not isinstance(checks[k], (int, float)) or isinstance(checks[k], bool) or checks[k] < 0):
+        if k in checks and (not _number(checks[k]) or checks[k] < 0):
             errors.append(f"checks.{k}: expected a number >= 0")
     if "maxFailedRatio" in checks and isinstance(checks["maxFailedRatio"], (int, float)) and checks["maxFailedRatio"] > 1:
         errors.append("checks.maxFailedRatio: must be <= 1")
     rates = checks.get("fieldFillRate", {})
-    if not isinstance(rates, dict) or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                                              and 0 <= v <= 1 for v in rates.values()):
+    if not isinstance(rates, dict) or not all(_number(v) and 0 <= v <= 1 for v in rates.values()):
         errors.append("checks.fieldFillRate: expected {field: share between 0 and 1}")
     if "statuses" in checks and (not isinstance(checks["statuses"], list)
                                  or not all(isinstance(x, str) for x in checks["statuses"])):
