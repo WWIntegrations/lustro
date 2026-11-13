@@ -116,6 +116,8 @@ def _parser():
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--token", default=None, help="Bearer token (default: $WW_SCRAPER_API_TOKEN or a random one)")
     s.add_argument("--no-auth", action="store_true", help="disable the token (loopback only; not recommended)")
+    s.add_argument("--max-runs", type=int, default=0, metavar="N",
+                   help="run at most N runs at once; the others wait READY (default: no cap)")
     common(s)
 
     sc = sub.add_parser("schedule", help="print a cron line and a launchd plist (installs nothing)")
@@ -367,7 +369,8 @@ def main(argv=None) -> int:
         from .api import ScraperAPI
         try:
             api = ScraperAPI(Storage(a.storage), a.host, a.port, token=a.token,
-                            allow_loopback=a.allow_loopback, lang=a.lang, no_auth=a.no_auth)
+                            allow_loopback=a.allow_loopback, lang=a.lang, no_auth=a.no_auth,
+                            max_runs=a.max_runs)
         except ValueError as e:
             print(str(e), file=sys.stderr)
             return 2

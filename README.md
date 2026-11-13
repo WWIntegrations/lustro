@@ -224,6 +224,7 @@ print(rec["status"], rec["itemCount"], rec["defaultDatasetId"])
 
 ```bash
 ww-scraper serve --port 8765               # binds to 127.0.0.1 only
+ww-scraper serve --max-runs 4              # at most 4 runs at once, the rest wait READY
 # a Bearer token is always required: --token / $WW_SCRAPER_API_TOKEN, otherwise a random
 # one is generated and printed once at start; --no-auth disables it explicitly
 ```

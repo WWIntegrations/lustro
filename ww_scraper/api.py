@@ -52,7 +52,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .actor import TERMINAL, InputError, execute_run, prepare_run, request_abort
+from .actor import TERMINAL, InputError, _now, execute_run, prepare_run, request_abort
 from .actors import ACTORS, get_actor
 from .compliance import is_loopback_host
 from .storage import Storage, StorageError, valid_id, valid_key
@@ -78,7 +78,7 @@ class _Server(ThreadingHTTPServer):
 class ScraperAPI:
     def __init__(self, storage: Storage = None, host: str = "127.0.0.1", port: int = 8765,
                  token: str = None, allow_loopback: bool = False, lang: str = None,
-                 no_auth: bool = False):
+                 no_auth: bool = False, max_runs: int = 0):
         if not is_loopback_host(host):
             raise ValueError("the ww-scraper API binds to a loopback IP only (127.0.0.1 or ::1)")
         self.storage = storage or Storage()
@@ -93,6 +93,9 @@ class ScraperAPI:
         self.allow_loopback = allow_loopback
         self.lang = lang
         self.runs: dict = {}
+        # at most max_runs runs execute at once (0 = no cap); the others wait READY
+        self.max_runs = max(0, int(max_runs or 0))
+        self._slots = threading.Semaphore(self.max_runs) if self.max_runs else None
         api = self
 
         class Handler(_Handler):
@@ -124,12 +127,29 @@ class ScraperAPI:
 
     def launch(self, rec, webhooks=None):
         abort = threading.Event()
-        t = threading.Thread(target=execute_run, args=(rec, self.storage), daemon=True,
-                             kwargs={"allow_loopback": self.allow_loopback,
-                                     "abort_event": abort, "webhooks": webhooks})
+        t = threading.Thread(target=self._execute, args=(rec, abort, webhooks), daemon=True)
         self.runs[rec["id"]] = (t, abort)
         t.start()
         return rec
+
+    def _execute(self, rec, abort, webhooks):
+        kwargs = {"allow_loopback": self.allow_loopback, "abort_event": abort, "webhooks": webhooks}
+        if self._slots is None:
+            return execute_run(rec, self.storage, **kwargs)
+        if not self._slots.acquire(blocking=False):
+            rec["statusMessage"] = f"waiting for a free run slot ({self.max_runs} running)"
+            self.storage.save_run(rec)
+            while not self._slots.acquire(timeout=0.2):
+                if abort.is_set():       # aborted while waiting: it never starts
+                    rec.update(status="ABORTED", statusMessage="aborted before it started",
+                               finishedAt=_now())
+                    self.storage.save_run(rec)
+                    return rec
+        try:
+            rec["statusMessage"] = ""
+            return execute_run(rec, self.storage, **kwargs)
+        finally:
+            self._slots.release()
 
 
 class _Handler(BaseHTTPRequestHandler):
