@@ -67,7 +67,7 @@ CONSOLE_FILES = {"/console": ("index.html", "text/html; charset=utf-8"),
                  "/console/app.js": ("app.js", "text/javascript; charset=utf-8"),
                  "/console/app.css": ("app.css", "text/css; charset=utf-8")}
 CONSOLE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-               "img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+               "img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 LIVE_STATUSES = ("READY", "RUNNING", "ABORTING", "TIMING-OUT")
 
 

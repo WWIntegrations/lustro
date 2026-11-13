@@ -17,6 +17,7 @@ from .pipeline import Pipeline
 from .places import Places
 from .product_catalog import ProductCatalog
 from .robots_audit import RobotsAudit
+from .screenshot import Screenshot
 from .security_headers import SecurityHeaders
 from .seo_audit import SeoAudit
 from .sitemap import Sitemap
@@ -27,7 +28,7 @@ ACTORS = {a.name: a for a in (
     WebsiteContentCrawler(), Sitemap(), SeoAudit(), SecurityHeaders(), LlmsTxt(),
     LinkChecker(), MediaCollector(), RobotsAudit(), StructuredData(), ChangeMonitor(),
     FeedReader(), JobPostings(), Places(), ProductCatalog(), ContactDetails(), LeadList(),
-    Pipeline(), Articles(), Events(), PackageInfo(),
+    Pipeline(), Articles(), Events(), PackageInfo(), Screenshot(),
 )}
 
 

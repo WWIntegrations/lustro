@@ -5,8 +5,20 @@ from __future__ import annotations
 
 import datetime
 
-from ..actor import ACCEPT_LANGUAGE, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..actor import (ACCEPT_LANGUAGE, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, PDF, REDACT,
+                     RENDER, SCREENSHOT, SCREENSHOT_FORMAT, START_URLS, WAIT_FOR, Actor)
 from ..storage import normalize_url
+
+
+def _artifacts(ctx, res) -> dict:
+    """screenshotKey / pdfKey of a rendered page, with the API path to fetch each one."""
+    out = {}
+    for key in ("screenshotKey", "pdfKey"):
+        if res.artifacts.get(key):
+            out[key] = res.artifacts[key]
+            out[key[:-3] + "Url"] = (f"/v2/key-value-stores/{ctx.kv.id}/records/{res.artifacts[key]}")
+    return out
+
 
 GLOBS = {"type": "array", "items": {"type": "string"}, "default": []}
 
@@ -30,6 +42,11 @@ class WebsiteContentCrawler(Actor):
             "maxConcurrency": CONCURRENCY,
             "render": RENDER,
             "acceptLanguage": ACCEPT_LANGUAGE,
+            "waitForSelector": WAIT_FOR,
+            "browserActions": BROWSER_ACTIONS,
+            "screenshot": SCREENSHOT,
+            "screenshotFormat": SCREENSHOT_FORMAT,
+            "pdf": PDF,
             "redactPii": REDACT,
         },
     }
@@ -73,6 +90,7 @@ class WebsiteContentCrawler(Actor):
                 "markdown": ctx.redact_text(doc.markdown),
                 "wordCount": doc.word_count,
                 "crawledAt": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                **_artifacts(ctx, res),
             })
 
         crawler.crawl(inp["startUrls"], on_page, max_pages=inp["maxPages"],

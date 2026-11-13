@@ -72,6 +72,26 @@ fetch("http://169.254.169.254/latest/meta-data/").then(
   function () { document.getElementById("probe").textContent = "probe refused"; });
 </script></body></html>"""
 
+# an app shell: nothing in the HTML until a script builds the page, and one more paragraph
+# only after a click (for browserActions, waitForSelector and "render": "auto")
+APP_PAGE = """<!doctype html><html lang="en"><head><title>App shell</title></head><body>
+<div id="root"></div><noscript>You need to enable JavaScript to run this app.</noscript>
+<script>
+setTimeout(function () {
+  var main = document.createElement("main");
+  var h = document.createElement("h1"); h.textContent = "Shell app"; main.appendChild(h);
+  var p = document.createElement("p");
+  p.textContent = "This text was built by the app after the page loaded, so only a browser sees it.";
+  main.appendChild(p);
+  var b = document.createElement("button"); b.id = "more"; b.textContent = "More";
+  b.onclick = function () {
+    var x = document.createElement("p"); x.id = "extra"; x.textContent = "Loaded after a click."; main.appendChild(x);
+  };
+  main.appendChild(b);
+  document.getElementById("root").appendChild(main);
+}, 400);
+</script></body></html>"""
+
 ROBOTS = ("User-agent: *\nDisallow: /private/\nDisallow: /*.bak$\nAllow: /private/open\n"
           "Crawl-delay: 0\n\nUser-agent: badbot\nDisallow: /\n\nSitemap: {base}/sitemap_index.xml\n")
 
@@ -188,6 +208,7 @@ class _Handler(BaseHTTPRequestHandler):
             "/paywall": lambda: self._send(402, "", ""),
             "/shell": lambda: self._send(200, '<!doctype html><html><head><title>App</title>'
                                               '</head><body><div id="root"></div></body></html>'),
+            "/app": lambda: self._send(200, APP_PAGE),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
             "/llms-full.txt": lambda: self._send(200, "# Full\n\nAll the docs in one file.\n", "text/plain"),
             "/redirect-1": lambda: self._send(301, headers={"Location": "/redirect-2"}),

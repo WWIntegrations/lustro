@@ -206,8 +206,19 @@ MIN_INTERVAL = {"type": "number", "default": 1.0, "minimum": 0,
 CONCURRENCY = {"type": "integer", "default": 1, "minimum": 1, "maximum": 16,
                "description": "Pages fetched at once; requests to one host stay spaced "
                               "by minIntervalSecs"}
-RENDER = {"type": "boolean", "default": False,
-          "description": "Run each page's scripts in a local headless Chrome before reading it"}
+RENDER = {"enum": [False, True, "auto"], "default": False,
+          "description": ("Run each page's scripts in a local headless Chrome before reading it: "
+                          "true for every page, \"auto\" only for pages that look built by scripts")}
+SCREENSHOT = {"type": "string", "enum": ["", "viewport", "fullPage"], "default": "",
+              "description": "Save a screenshot of each rendered page in the run's key-value store"}
+SCREENSHOT_FORMAT = {"type": "string", "enum": ["png", "jpeg"], "default": "png"}
+PDF = {"type": "boolean", "default": False, "description": "Save each rendered page as a PDF in the key-value store"}
+# browser interaction for rendered pages (any of them turns rendering on)
+WAIT_FOR = {"type": "string", "default": "", "maxLength": 300,
+            "description": "Rendered pages: wait until this CSS selector exists before reading the page"}
+BROWSER_ACTIONS = {"type": "array", "items": {"type": "object"}, "default": [], "maxItems": 20, "editor": "json",
+                   "description": ('Rendered pages: steps run before reading, e.g. [{"click": "#more"}, '
+                                   '{"waitForSelector": ".item"}, {"scroll": "bottom"}, {"wait": 500}]')}
 ACCEPT_LANGUAGE = {"type": "string", "default": "", "maxLength": 200,
                    "pattern": "^[A-Za-z0-9,;=.* -]*$",
                    "description": "Accept-Language sent with every request and to the browser, "
@@ -602,7 +613,16 @@ class RunContext:
         min_interval = kwargs.pop("min_interval", self.input.get("minIntervalSecs", 1.0))
         crawler = PoliteCrawler(self, min_interval=min_interval, **kwargs)
         crawler.default_concurrency = int(self.input.get("maxConcurrency", 1) or 1)
-        crawler.render = bool(self.input.get("render", False))
+        render = self.input.get("render", False)
+        crawler.render = "auto" if render == "auto" else bool(render)
+        inp = self.input
+        crawler.browser = {"waitForSelector": inp.get("waitForSelector") or None,
+                           "actions": inp.get("browserActions") or None,
+                           "screenshot": inp.get("screenshot") or None,
+                           "format": inp.get("screenshotFormat") or "png",
+                           "pdf": bool(inp.get("pdf"))}
+        if any(crawler.browser[k] for k in ("waitForSelector", "actions", "screenshot", "pdf")) and not render:
+            crawler.render = True
         lang = (self.input.get("acceptLanguage") or "").strip()
         if lang:
             crawler.accept_language = lang
@@ -648,6 +668,11 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
     if prev:
         opts = dict(prev.get("options") or {}, **opts)
     clean, errors = validate_input(actor.input_schema, input, lang)
+    if clean.get("browserActions"):
+        from .render import validate_actions
+        errors += validate_actions(clean["browserActions"])
+    if "render" in clean and not (isinstance(clean["render"], bool) or clean["render"] == "auto"):
+        errors.append('render: expected true, false or "auto"')      # 0 and 1 are not booleans here
     errors = opt_errors + errors
     if errors:
         raise InputError(errors)

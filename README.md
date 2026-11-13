@@ -18,7 +18,7 @@ wheel, check it, then install it with pip.
 
 ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (datasets, key-value stores, request queues, actors, runs and a
-small HTTP API), plus twenty ready actors, including job postings, places, product catalogs, contact details and the original licensed media collector.
+small HTTP API), plus twenty-one ready actors, including job postings, places, product catalogs, contact details and the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
 robots.txt always, a per-host rate limit, an honest User-Agent with a contact, and
 personal data redacted by default.
@@ -65,7 +65,7 @@ copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's 
 ## What you can do with it
 
 ```bash
-ww-scraper actors                                     # the twenty built-in actors
+ww-scraper actors                                     # the twenty-one built-in actors
 ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.com/"], "render": true, "maxConcurrency": 4}'
 ww-scraper runs                                       # what ran, with status, item counts and status message
@@ -80,7 +80,9 @@ ww-scraper serve                                      # local HTTP API, token re
 
 | Need | How |
 |---|---|
-| Pages that build their content with JavaScript | `"render": true` re-reads each page through a local headless Chrome; the browser's connections go through a proxy that refuses private addresses |
+| Pages that build their content with JavaScript | `"render": true` re-reads each page through a local headless Chrome; the browser's connections go through a proxy that refuses private addresses. `"render": "auto"` renders only pages whose HTML looks script-built and stops for a host where rendering adds nothing |
+| A page that needs a click or a wait first | `"waitForSelector": ".results"` and `"browserActions": [{"click": "#more"}, {"waitForSelector": ".item"}, {"scroll": "bottom"}, {"wait": 500}]`: clicks, scrolls and waits only, no typing |
+| Screenshots or PDFs of pages | the `screenshot` actor, or `"screenshot": "viewport"` / `"fullPage"` and `"pdf": true` on `website-content-crawler`: files go to the run's key-value store, with thumbnails in the console and the report |
 | Faster crawls over several hosts | `"maxConcurrency": N` (1 to 16); one host is still never asked more often than `minIntervalSecs` |
 | A scraper for one specific site | `ww-scraper init <name>` writes a working actor; edit `run(ctx)` |
 | A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format xlsx --out items.xlsx` |
@@ -155,6 +157,7 @@ metadata with the standard library only (`html.parser`).
 | `contact-details`         | the e-mails, phones, social profiles, address and VAT id a company publishes on its home, contact, about and imprint pages; role addresses (info@, biuro@) kept, personal ones masked unless `redactPii` is off |
 | `lead-list`               | `places` then `contact-details` on every place with a website, joined into one record per business: name, category, address, website, role e-mails and phones, social profiles, source (OSM link, ODbL attribution, pages read); the masking of both actors is kept |
 | `pipeline`                | actors run one after another, a field of one step's items (e.g. `url`) becoming the start URLs of the next, e.g. `sitemap` then `seo-audit` |
+| `screenshot`              | a PNG or JPEG screenshot (viewport or full page) and optionally a PDF of each page, from a local headless Chrome behind the filtering proxy, saved in the run's key-value store |
 | `articles`                | news and blog articles from schema.org `Article` / `NewsArticle` / `BlogPosting` data (Open Graph article tags as a fallback): headline, byline, publisher, dates, section, keywords; `publishedAfter`; body as Markdown on request |
 | `events`                  | schema.org `Event` data (concerts, conferences, meetups): dates, status, attendance mode, place and address, organizer, performers, cheapest ticket; past events skipped by default |
 | `package-info`            | npm, RubyGems and Packagist packages from the registries' JSON APIs: latest version, release date, licence, repository, runtime dependencies, downloads, deprecation. PyPI is left out because its robots.txt disallows the JSON API |
@@ -433,6 +436,9 @@ the open, that respects the sites it touches.
   at a specific binary). The page's own sub-requests are made by the browser like any
   visitor's browser; they are blocked from private addresses but not checked against
   robots.txt one by one. Rendering visits each page twice (once to check, once to render).
+  Browser interaction is limited to clicks, scrolls and waits (at most 20 steps); there is
+  no typing, no form filling and no caller script. A full-page screenshot is cut at
+  16,384 px.
 - Concurrency never shortens the interval to a single host, so a one-site crawl is not
   faster with `maxConcurrency`.
 - File actors are ordinary Python run with your permissions: run only files you trust.

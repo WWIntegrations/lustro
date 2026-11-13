@@ -72,6 +72,19 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- Browser interaction: `waitForSelector` and `browserActions` (`click`, `scroll`, `wait`,
+  `waitForSelector`; at most 20, nothing else) on every actor that renders. With any of
+  them, or with screenshots or PDFs, Chrome is driven over `--remote-debugging-pipe`
+  (stdlib client in `ww_scraper/cdp.py`, no debugging port) behind the same filtering
+  proxy and flags. Invalid actions are refused before the run starts.
+- Screenshots and PDFs: the new `screenshot` actor, and `screenshot` (`viewport` or
+  `fullPage`), `screenshotFormat` and `pdf` on `website-content-crawler`. Files go to the
+  run's key-value store as `screenshot-<hash>.png|jpg` and `page-<hash>.pdf`; items carry
+  their keys and API paths. The console shows thumbnails (CSP `img-src` now allows `blob:`
+  for them) and `ww-scraper report` embeds up to 60.
+- `"render": "auto"`: pages are rendered only when their HTML looks built by scripts (an
+  empty app root, a noscript notice, almost no text beside scripts), and a host stops
+  being rendered after three renders that added no text. New counter `renderSkipped`.
 - `ww-scraper mcp`: an opt-in Model Context Protocol server over stdio (JSON-RPC 2.0, one
   message per line) with `list_actors`, `describe_actor`, `call_actor`, `get_run`,
   `list_runs` and `get_dataset_items`; `--read-only` drops `call_actor`. Runs use the same
