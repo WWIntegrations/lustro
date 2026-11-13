@@ -41,6 +41,34 @@ redirecting old path. With the same budget for both (10 requests in flight), ww-
 downloaded 510 pages and passed on 0 duplicates in 1.6 s and 35 MB; Crawlee downloaded 2,500,
 passed on 2,000 duplicates, followed links from a `nofollow` page, and took 8.3 s and 389 MB.
 
+### Against the hosted platform itself
+
+On 2026-11-13 the same job ran on a hosted scraping platform's website content crawler (its
+plain-HTTP mode, no browser) and on ww-scraper's `website-content-crawler`: start at
+`https://books.toscrape.com/` (a site published for scraping practice, no robots.txt rules),
+stop at 200 pages, save each page's main content as Markdown. ww-scraper ran on one laptop
+(Apple M2, 16 GB) with up to 8 requests in flight and its per-host pacing; the hosted runs used
+the platform's default settings at two memory sizes.
+
+| | ww-scraper, local | Hosted, 1 GB | Hosted, 4 GB |
+|---|---|---|---|
+| Run time | 103 s | 478 s | 105 s |
+| Pages saved (limit 200) | 200 | 212 | 206 |
+| Peak memory | 42 MB | 976 MB | 1,862 MB |
+| Cost of the run | none | $0.039 | $0.029 |
+
+Content on the 73 URLs both saved: product pages match (583 against 597 words, 8.95 against
+8.95 prices per page). Listing pages exposed a defect in ww-scraper, fixed in this release:
+each book on a listing is its own `<article>`, and the extractor kept only the first one
+(1.0 price per listing page against 10.75). With the fix, ww-scraper keeps the list the items
+share: 10.89 prices per listing page against 10.75. The hosted crawler kept the page title and
+breadcrumbs as well (658 against 579 words per listing page).
+
+What this does and does not show: on a small, permissive site one laptop matches the hosted
+crawler's speed at its 4 GB setting with about 2% of its memory, stops at the page limit, and
+costs nothing per run. It says nothing about many machines, browser-rendered sites or sites
+that need proxies, which ww-scraper does not attempt.
+
 ## When ww-scraper is the better tool
 
 - You crawl sites you run, sites that allow it, or public data through official APIs.
