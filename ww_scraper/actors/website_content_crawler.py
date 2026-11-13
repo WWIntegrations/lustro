@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 
-from ..actor import CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
+from ..actor import ACCEPT_LANGUAGE, CONCURRENCY, MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
 from ..storage import normalize_url
 
 GLOBS = {"type": "array", "items": {"type": "string"}, "default": []}
@@ -29,6 +29,7 @@ class WebsiteContentCrawler(Actor):
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
             "render": RENDER,
+            "acceptLanguage": ACCEPT_LANGUAGE,
             "redactPii": REDACT,
         },
     }
@@ -42,6 +43,9 @@ class WebsiteContentCrawler(Actor):
             if res.error or doc is None:
                 if res.error:
                     ctx.record_failure(req["url"], res.error)
+                elif res.status and res.status >= 400:
+                    # a wrong start URL must not end as a silent, empty success
+                    ctx.record_failure(req["url"], f"HTTP {res.status}")
                 return
             xrt = res.headers.get("x-robots-tag", "").lower()
             if doc.noindex or "noindex" in xrt or "none" in xrt:
@@ -51,6 +55,12 @@ class WebsiteContentCrawler(Actor):
             if final in stored:
                 return
             stored.add(final)
+            if doc.word_count == 0:
+                # an empty 200 page is almost always a script-built page: say so, do not
+                # let it pass as content
+                crawler._inc("emptyPages")
+                hint = "" if getattr(res, "rendered", False) else "; try render:true"
+                ctx.log.warning(f"no text on {res.final_url} (page built by scripts?{hint})")
             ctx.push_data({
                 "url": req["url"],
                 "finalUrl": res.final_url,

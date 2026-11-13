@@ -40,6 +40,12 @@ def test_website_content_crawler(site, storage):
     assert kv.get("INPUT")["startUrls"] == [site.base + "/"]
 
 
+def test_website_content_crawler_records_http_errors(site, storage):
+    rec, items, kv = _run(storage, "website-content-crawler", {"startUrls": [site.base + "/missing"]})
+    assert items == [] and rec["stats"]["failed"] == 1
+    assert kv.get("FAILED_REQUESTS") == [{"url": site.base + "/missing", "reason": "HTTP 404"}]
+
+
 def test_website_content_crawler_pii_opt_out(site, storage):
     _, items, _ = _run(storage, "website-content-crawler",
                        {"startUrls": [site.base + "/"], "maxPages": 1, "redactPii": False})
@@ -203,3 +209,30 @@ def test_media_collector_wraps_search(storage, monkeypatch):
                     storage)
     assert rec["status"] == "SUCCEEDED"
     assert storage.dataset(rec["id"]).items()[0]["license"] == "CC BY 4.0"
+
+
+def test_website_content_crawler_flags_pages_without_text(site, storage):
+    rec, items, kv = _run(storage, "website-content-crawler",
+                          {"startUrls": [site.base + "/shell"], "maxDepth": 0})
+    assert len(items) == 1 and items[0]["wordCount"] == 0
+    assert rec["stats"]["emptyPages"] == 1
+
+
+def test_accept_language_is_sent_with_every_request(site, storage):
+    _run(storage, "website-content-crawler",
+         {"startUrls": [site.base + "/about"], "maxDepth": 0, "acceptLanguage": "en-US,en;q=0.9"})
+    assert site.langs and set(site.langs) == {"en-US,en;q=0.9"}
+
+
+@pytest.mark.parametrize("actor,key", [("contact-details", "startUrls"),
+                                       ("product-catalog", "startUrls")])
+def test_http_errors_on_start_urls_are_recorded(site, storage, actor, key):
+    rec, items, kv = _run(storage, actor, {key: [site.base + "/missing"]})
+    assert rec["stats"]["failed"] == 1
+    assert {"url": site.base + "/missing", "reason": "HTTP 404"} in kv.get("FAILED_REQUESTS")
+
+
+def test_job_postings_records_a_missing_careers_page(site, storage):
+    rec, items, kv = _run(storage, "job-postings", {"boards": [site.base + "/missing"]})
+    assert rec["stats"]["failed"] >= 1
+    assert any(f["reason"] == "HTTP 404" for f in kv.get("FAILED_REQUESTS"))

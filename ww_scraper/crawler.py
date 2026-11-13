@@ -172,6 +172,7 @@ class PoliteCrawler:
         self.default_concurrency = 1
         self.render = False          # True: HTML pages are re-read through headless Chrome
         self.render_wait_ms = 3000
+        self.accept_language = ""    # passed to the browser too, so a render keeps the language
         # url -> {"etag", "lastModified"}: GETs of these URLs are conditional, a 304 is "unchanged"
         self.validators: dict = {}
         # url -> links seen the last time: followed when the page answers 304 (no body to parse)
@@ -384,7 +385,8 @@ class PoliteCrawler:
         self._inc("requests")
         try:
             html = render_dom(res.final_url, allow_loopback=self.allow_loopback,
-                              wait_ms=self.render_wait_ms, max_bytes=self.max_bytes)
+                              wait_ms=self.render_wait_ms, max_bytes=self.max_bytes,
+                              accept_language=self.accept_language)
         except RenderError as e:
             self._inc("renderFailed")
             if self.log:

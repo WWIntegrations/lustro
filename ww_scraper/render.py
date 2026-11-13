@@ -93,7 +93,8 @@ def _run_capped(cmd, timeout: float, max_bytes: int):
 
 
 def render_dom(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000,
-               timeout: float = 45, max_bytes: int = 5 * 1024 * 1024) -> str:
+               timeout: float = 45, max_bytes: int = 5 * 1024 * 1024,
+               accept_language: str = "") -> str:
     """HTML of the page after its scripts ran. Raises RenderError when no browser is
     installed, the browser fails, times out or returns more than max_bytes."""
     parts = urlsplit(url)
@@ -120,6 +121,8 @@ def render_dom(url: str, *, allow_loopback: bool = False, wait_ms: int = 3000,
                "--disable-quic", "--disable-features=WebRtcHideLocalIpsWithMdns,DnsOverHttps",
                "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
                f"--user-agent={USER_AGENT}",
+               *([f"--accept-lang={accept_language}", f"--lang={accept_language.split(',')[0].split(';')[0].strip()}"]
+                 if accept_language else []),
                f"--virtual-time-budget={max(0, int(wait_ms))}",
                *extra, "--dump-dom", url]
         out, code, err_tail = _run_capped(cmd, timeout, max_bytes)

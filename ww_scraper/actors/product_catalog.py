@@ -172,8 +172,8 @@ class ProductCatalog(Actor):
 
         def on_page(res, req, doc):
             if doc is None:
-                if res.error and not res.duplicate:
-                    ctx.record_failure(req["url"], res.error)
+                if not res.duplicate and (res.error or (res.status and res.status >= 400)):
+                    ctx.record_failure(req["url"], res.error or f"HTTP {res.status}")
                 return
             summary["pages"] += 1
             items = []
