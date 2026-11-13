@@ -80,11 +80,19 @@ def parse_duration(text) -> float:
 
 
 def _parse_time(value):
-    try:
+    """An ISO 8601 time as an aware datetime (UTC when it carries no offset), or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:            # the format run records are written in (two fraction digits, also on 3.10)
         return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
             tzinfo=datetime.timezone.utc)
-    except (TypeError, ValueError):
+    except ValueError:
+        pass
+    try:
+        t = datetime.datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+    except ValueError:
         return None
+    return t if t.tzinfo else t.replace(tzinfo=datetime.timezone.utc)
 
 
 def _size(path: Path) -> int:

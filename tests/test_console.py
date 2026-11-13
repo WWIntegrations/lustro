@@ -137,3 +137,47 @@ def test_console_renders_a_hostile_item_as_text_in_chrome(api, storage):
     assert 'href="javascript:' not in out                      # only http(s) values become links
     assert 'href="https://example.org/a"' in out
     assert "token=" not in out.split("<body", 1)[1]            # the fragment was cleared, not echoed
+
+
+def _dump(url):
+    with tempfile.TemporaryDirectory() as profile:
+        return subprocess.run(
+            [find_browser(), "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+             "--disable-extensions", "--disable-background-networking", f"--user-data-dir={profile}",
+             "--virtual-time-budget=6000", "--dump-dom", url],
+            capture_output=True, text=True, timeout=90).stdout
+
+
+def test_console_has_the_new_screens():
+    html = (CONSOLE_DIR / "index.html").read_text(encoding="utf-8")
+    js = (CONSOLE_DIR / "app.js").read_text(encoding="utf-8")
+    for nav in ("tasks", "storage", "history"):
+        assert f'data-nav="{nav}"' in html
+    for fn in ("storagesView", "datasetView", "kvView", "tasksView", "historyView"):
+        assert f"async function {fn}(" in js
+    assert "innerHTML" not in js and "insertAdjacentHTML" not in js
+
+
+@pytest.mark.skipif(find_browser() is None, reason="no Chrome or Chromium installed")
+def test_console_storage_tasks_and_history_screens_in_chrome(api, storage):
+    from ww_scraper.tasks import save_task
+    rec = _finished_run(storage, [{"url": "https://example.org/", "title": "x"}])
+    named = storage.named_dataset("weekly-leads")
+    named.push([{"name": HOSTILE, "url": "https://example.org/n"}])
+    storage.named_kv("monitor-state").set("SEEN", {"a": 1})
+    save_task(storage, "nightly-crawl", "website-content-crawler", {"startUrls": ["https://example.org/"]},
+              {"timeoutSecs": 60})
+    base = f"{api.url}/console#"
+    out = _dump(f"{base}/storage&token={TOKEN}")
+    assert 'id="storage-datasets"' in out and "weekly-leads" in out and "monitor-state" in out, out[-1500:]
+    assert rec["id"] not in out                                  # run storages only with ?all=1
+    out = _dump(f"{base}/storage/datasets/weekly-leads&token={TOKEN}")
+    assert 'id="items"' in out and "&lt;img src=x" in out and "<img src" not in out, out[-1500:]
+    out = _dump(f"{base}/storage/key-value-stores/monitor-state&token={TOKEN}")
+    assert 'id="keys"' in out and "SEEN" in out, out[-1500:]
+    out = _dump(f"{base}/tasks&token={TOKEN}")
+    assert 'id="tasks"' in out and "nightly-crawl" in out and "timeoutSecs" in out, out[-1500:]
+    out = _dump(f"{base}/history&token={TOKEN}")
+    assert 'id="history-chart"' in out and 'id="history-table"' in out and 'id="recent"' in out, out[-1500:]
+    assert out.count('class="day"') == 30 and 'class="seg s-SUCCEEDED"' in out
+    assert "<title>ww-scraper console</title>" in out

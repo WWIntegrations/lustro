@@ -8,7 +8,7 @@ const STAT_LABELS = [["items", "items"], ["pages", "pages parsed"], ["requests",
   ["throttled", "slowed down for an overloaded host"], ["robotsBlocked", "refused by robots.txt"],
   ["ssrfBlocked", "refused by SSRF guard"], ["failed", "failed"], ["rendered", "rendered"],
   ["bytes", "bytes read"], ["durationMillis", "ms"]];
-const FORMATS = ["json", "jsonl", "csv", "xlsx", "xml", "html"];
+const FORMATS = ["json", "jsonl", "csv", "xlsx", "xml", "html", "rss"];
 const LIVE = new Set(["READY", "RUNNING", "ABORTING", "TIMING-OUT"]);
 const MAX_ITEMS = 100, MAX_COLUMNS = 12, MAX_CELL = 180, POLL_MS = 2000;
 
@@ -377,6 +377,239 @@ async function runView(id) {
   if (live) poll(() => runView(id));
 }
 
+// -- storages: named datasets and key-value stores, with their items and keys ---------------
+const KINDS = [["datasets", "Datasets"], ["key-value-stores", "Key-value stores"]];
+
+function fmtBytes(n) {
+  if (typeof n !== "number") return "";
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+
+async function storagesView() {
+  const named = !/[?&]all=1/.test(location.hash);
+  const lists = await Promise.all(KINDS.map(([kind]) =>
+    apiJson("/v2/" + kind + (named ? "?named=1" : "")).then((d) => d.items || [])));
+  const sections = KINDS.map(([kind, title], i) => {
+    const rows = lists[i].sort((a, b) => String(b.modifiedAt || "").localeCompare(String(a.modifiedAt || "")));
+    const href = (s) => "#/storage/" + kind + "/" + encodeURIComponent(s.id);
+    return [el("h2", { text: title + " (" + rows.length + ")" }),
+      rows.length ? el("div", { class: "wrap" }, el("table", { id: "storage-" + kind },
+        el("thead", {}, el("tr", {}, ["Name or run", "Kind", kind === "datasets" ? "Items" : "Keys", "Size", "Modified"]
+          .map((h, j) => el("th", { class: j === 2 || j === 3 ? "num" : null, text: h })))),
+        el("tbody", {}, rows.map((s) => el("tr", { class: "link", tabindex: "0",
+            onclick: () => { location.hash = href(s); },
+            onkeydown: (e) => { if (e.key === "Enter") location.hash = href(s); } },
+          el("td", {}, el("code", { text: s.name || s.id })),
+          el("td", { text: s.name ? "named" : "run" }),
+          el("td", { class: "num", text: String(kind === "datasets" ? s.itemCount ?? "" : s.keyCount ?? "") }),
+          el("td", { class: "num", text: fmtBytes(s.bytes) }),
+          el("td", { text: fmtTime(s.modifiedAt) }))))))
+        : el("p", { class: "note", text: named ? "No named " + title.toLowerCase() + " yet. A run with \"datasetName\" or ctx.dataset(\"name\") creates one." : "None yet." })];
+  });
+  view(
+    el("div", { class: "row" },
+      el("div", {}, el("h1", { text: "Storage" }),
+        el("p", { class: "sub", text: named ? "Named storages are shared by runs and never purged." : "Every storage, named and per run." })),
+      el("a", { class: "btn push", id: "storage-toggle", href: named ? "#/storage?all=1" : "#/storage",
+        text: named ? "Show run storages too" : "Named only" })),
+    sections.flat());
+}
+
+async function datasetView(id) {
+  const ds = encodeURIComponent(id);
+  const [info, items] = await Promise.all([
+    apiJson("/v2/datasets/" + ds),
+    api("/v2/datasets/" + ds + "/items?format=json&desc=1&limit=" + MAX_ITEMS).then((r) => (r.ok ? r.json() : [])),
+  ]);
+  const list = Array.isArray(items) ? items : [];
+  const views = Object.keys((info.schema && info.schema.views) || {});
+  view(
+    el("p", {}, el("a", { href: "#/storage", text: "All storages" })),
+    el("h1", {}, el("code", { text: info.name || info.id })),
+    el("p", { class: "sub", text: (info.itemCount ?? 0) + " items · " + fmtBytes(info.bytes) + " · modified " + fmtTime(info.modifiedAt)
+      + (info.runId ? " · written by run " + info.runId : "") }),
+    views.length ? el("p", { class: "muted", text: "Views: " + views.join(", ") }) : null,
+    el("div", { class: "row gap-below" }, el("span", { class: "muted", text: "Download" }),
+      FORMATS.map((f) => el("button", { class: "btn", type: "button", text: f.toUpperCase(),
+        onclick: () => downloadPath("/v2/datasets/" + ds + "/items?format=" + f, id + "." + f) }))),
+    el("h2", { text: "Newest items (" + list.length + (info.itemCount > list.length ? " of " + info.itemCount : "") + ")" }),
+    list.length ? itemsTable(list) : el("p", { class: "note", text: "This dataset is empty." }));
+}
+
+async function kvView(id) {
+  const kv = encodeURIComponent(id);
+  const [info, keys] = await Promise.all([
+    apiJson("/v2/key-value-stores/" + kv),
+    apiJson("/v2/key-value-stores/" + kv + "/keys").then((d) => d.items || []),
+  ]);
+  const collections = Object.keys((info.schema && info.schema.collections) || {});
+  view(
+    el("p", {}, el("a", { href: "#/storage", text: "All storages" })),
+    el("h1", {}, el("code", { text: info.name || info.id })),
+    el("p", { class: "sub", text: keys.length + " keys · " + fmtBytes(info.bytes) + " · modified " + fmtTime(info.modifiedAt) }),
+    collections.length ? el("p", { class: "muted", text: "Collections: " + collections.join(", ") }) : null,
+    keys.length ? el("div", { class: "wrap" }, el("table", { id: "keys" },
+      el("thead", {}, el("tr", {}, el("th", { text: "Key" }), el("th", { text: "Type" }),
+        el("th", { class: "num", text: "Size" }), el("th", { text: "" }))),
+      el("tbody", {}, keys.map((k) => el("tr", {},
+        el("td", {}, el("code", { text: k.key })),
+        el("td", { class: "muted", text: k.contentType || "" }),
+        el("td", { class: "num", text: fmtBytes(k.size) }),
+        el("td", {}, el("button", { class: "btn", type: "button", text: "Download",
+          onclick: () => downloadPath("/v2/key-value-stores/" + kv + "/records/" + encodeURIComponent(k.key), k.key) })))))))
+      : el("p", { class: "note", text: "This store has no records." }));
+}
+
+// -- tasks: saved input and options, run with one click -------------------------------------
+async function tasksView() {
+  const tasks = (await apiJson("/v2/actor-tasks")).items || [];
+  const err = el("div", { class: "err", id: "task-error", hidden: true });
+  const run = async (ev, t) => {
+    ev.target.disabled = true;
+    try {
+      const rec = await apiJson("/v2/actor-tasks/" + encodeURIComponent(t.name) + "/runs", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: "{}" });
+      location.hash = "#/runs/" + encodeURIComponent(rec.id);
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      err.hidden = false;
+      err.replaceChildren(el("b", { text: t.name + ": " + (e.message || "could not start") }),
+        el("ul", {}, ((e.body && e.body.error && e.body.error.errors) || []).map((m) => el("li", { text: m }))));
+      ev.target.disabled = false;
+    }
+  };
+  view(
+    el("h1", { text: "Tasks" }),
+    el("p", { class: "sub", text: "A task is an actor with saved input and run options. Save one with `ww-scraper task save` or POST /v2/actor-tasks." }),
+    err,
+    tasks.length ? el("div", { class: "wrap" }, el("table", { id: "tasks" },
+      el("thead", {}, el("tr", {}, ["Task", "Actor", "Options", "Input", "Modified", ""].map((h) => el("th", { text: h })))),
+      el("tbody", {}, tasks.map((t) => el("tr", {},
+        el("td", {}, el("b", { text: t.name })),
+        el("td", {}, el("a", { href: "#/actors/" + encodeURIComponent(t.actId || "") }, el("code", { text: t.actId || "" }))),
+        el("td", {}, el("code", { text: cellText(t.options || {}) })),
+        el("td", {}, el("code", { text: cellText(t.input || {}) })),
+        el("td", { text: fmtTime(t.modifiedAt) }),
+        el("td", {}, el("button", { class: "btn primary", type: "button", text: "Run",
+          onclick: (ev) => guarded(() => run(ev, t)) })))))))
+      : el("p", { class: "note", text: "No tasks yet." }));
+}
+
+// -- history: runs per day by status, and the latest runs -----------------------------------
+const STATUS_ORDER = ["SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED", "OTHER"];
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svg(tag, attrs, ...children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined) continue;
+    if (k === "text") node.textContent = v; else node.setAttribute(k, String(v));
+  }
+  for (const c of children.flat()) if (c) node.append(c);
+  return node;
+}
+
+function dayCounts(day) {
+  const out = { OTHER: 0 };
+  for (const [k, v] of Object.entries(day)) {
+    if (k === "date") continue;
+    if (STATUS_ORDER.includes(k)) out[k] = v; else out.OTHER += v;
+  }
+  return out;
+}
+
+function historyChart(days) {
+  const W = 760, H = 220, top = 12, bottom = 26, left = 32, right = 8;
+  const totals = days.map((d) => Object.entries(d).reduce((s, [k, v]) => (k === "date" ? s : s + v), 0));
+  const max = Math.max(1, ...totals);
+  const step = Math.max(1, Math.ceil(max / 4));
+  const ceil = step * Math.ceil(max / step);
+  const y = (v) => top + (H - top - bottom) * (1 - v / ceil);
+  const slot = (W - left - right) / days.length;
+  const bw = Math.max(4, Math.min(18, slot - 4));
+  const nodes = [];
+  for (let v = 0; v <= ceil; v += step) {
+    nodes.push(svg("line", { class: v ? "grid" : "axis", x1: left, x2: W - right, y1: y(v), y2: y(v) }));
+    nodes.push(svg("text", { class: "tick", x: left - 6, y: y(v) + 4, "text-anchor": "end", text: String(v) }));
+  }
+  days.forEach((d, i) => {
+    const x = left + i * slot + (slot - bw) / 2;
+    const counts = dayCounts(d);
+    let base = 0;
+    const segs = [];
+    const parts = [];
+    STATUS_ORDER.forEach((st) => {
+      const n = counts[st] || 0;
+      if (!n) return;
+      const y1 = y(base + n), y0 = y(base);
+      const h = Math.max(1, y0 - y1 - (base ? 2 : 0));       // 2px surface gap between segments
+      segs.push(svg("rect", { class: "seg s-" + st, x, y: y1, width: bw, height: h, rx: 1 }));
+      parts.push(n + " " + st.toLowerCase());
+      base += n;
+    });
+    const label = d.date + ": " + (parts.length ? parts.join(", ") : "no runs");
+    // hit target taller and wider than the bar, with a native tooltip
+    nodes.push(svg("g", { class: "day", tabindex: "0", role: "img", "aria-label": label },
+      svg("title", { text: label }),
+      svg("rect", { class: "hit", x: left + i * slot, y: top, width: slot, height: H - top - bottom }), segs));
+    // a tick every 7 days and on the last day, never two labels side by side
+    if ((i % 7 === 0 && days.length - 1 - i >= 4) || i === days.length - 1) {
+      nodes.push(svg("text", { class: "tick", x: x + bw / 2, y: H - 8, "text-anchor": "middle", text: d.date.slice(5) }));
+    }
+  });
+  return svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", id: "history-chart", role: "group",
+    "aria-label": "Runs started per day over the last " + days.length + " days, by final status" }, nodes);
+}
+
+async function historyView() {
+  const stats = await apiJson("/v2/stats/runs?days=30&last=200");
+  const days = stats.days || [];
+  const totals = stats.totals || {};
+  const recent = stats.recent || [];
+  const all = Object.values(totals).reduce((a, b) => a + b, 0);
+  const done = recent.filter((r) => typeof r.durationMillis === "number");
+  const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
+  const medMs = median(done.map((r) => r.durationMillis));
+  const legend = el("ul", { class: "legend" }, STATUS_ORDER.map((st) => el("li", {},
+    el("span", { class: "swatch s-" + st, "aria-hidden": "true" }),
+    (st === "OTHER" ? "running or waiting" : st.toLowerCase()) + " " + (st === "OTHER"
+      ? Object.entries(totals).filter(([k]) => !STATUS_ORDER.includes(k)).reduce((a, [, v]) => a + v, 0)
+      : totals[st] || 0))));
+  view(
+    el("h1", { text: "History" }),
+    el("p", { class: "sub", text: all + " run" + (all === 1 ? "" : "s") + " started in the last " + days.length + " days" }),
+    el("div", { class: "grid" },
+      el("div", { class: "tile" }, el("b", { text: String(all) }), el("span", { text: "runs, 30 days" })),
+      el("div", { class: "tile" }, el("b", { text: all ? Math.round(100 * (totals.SUCCEEDED || 0) / all) + "%" : "-" }),
+        el("span", { text: "succeeded" })),
+      el("div", { class: "tile" }, el("b", { text: medMs === null ? "-" : medMs < 1000 ? medMs + " ms" : (medMs / 1000).toFixed(1) + " s" }),
+        el("span", { text: "median duration, last " + recent.length })),
+      el("div", { class: "tile" }, el("b", { text: String(recent.reduce((a, r) => a + (r.itemCount || 0), 0)) }),
+        el("span", { text: "items, last " + recent.length + " runs" }))),
+    el("h2", { text: "Runs per day by status" }),
+    legend,
+    el("div", { class: "chart-wrap" }, historyChart(days)),
+    el("details", {}, el("summary", { text: "Show as a table" }),
+      el("div", { class: "wrap" }, el("table", { id: "history-table" },
+        el("thead", {}, el("tr", {}, el("th", { text: "Day" }), STATUS_ORDER.map((st) => el("th", { class: "num", text: st.toLowerCase() })))),
+        el("tbody", {}, days.map((d) => { const c = dayCounts(d);
+          return el("tr", {}, el("td", { text: d.date }), STATUS_ORDER.map((st) => el("td", { class: "num", text: String(c[st] || 0) }))); }))))),
+    el("h2", { text: "Latest runs" }),
+    recent.length ? el("div", { class: "wrap" }, el("table", { id: "recent" },
+      el("thead", {}, el("tr", {}, ["Status", "Actor", "Started", "Duration", "Items", "Requests", "Failed"]
+        .map((h, i) => el("th", { class: i >= 3 ? "num" : null, text: h })))),
+      el("tbody", {}, recent.slice(0, 50).map((r) => el("tr", { class: "link", tabindex: "0",
+          onclick: () => { location.hash = "#/runs/" + encodeURIComponent(r.id); },
+          onkeydown: (e) => { if (e.key === "Enter") location.hash = "#/runs/" + encodeURIComponent(r.id); } },
+        el("td", {}, pill(r.status)), el("td", {}, el("code", { text: r.actId || "" })),
+        el("td", { text: fmtTime(r.startedAt) }), el("td", { class: "num", text: duration({ stats: { durationMillis: r.durationMillis } }) }),
+        el("td", { class: "num", text: String(r.itemCount ?? "") }), el("td", { class: "num", text: String(r.requests ?? "") }),
+        el("td", { class: "num", text: String(r.failed ?? "") }))))))
+      : el("p", { class: "note", text: "No runs yet." }));
+}
+
 // -- router ---------------------------------------------------------------------------------
 function poll(fn) {
   clearTimeout(timer);
@@ -395,7 +628,7 @@ async function guarded(fn) {
 
 function route() {
   clearTimeout(timer);
-  const parts = (location.hash.replace(/^#\/?/, "") || "runs").split("/").map(decodeURIComponent);
+  const parts = (location.hash.replace(/^#\/?/, "").replace(/\?.*$/, "") || "runs").split("/").map(decodeURIComponent);
   for (const a of document.querySelectorAll("[data-nav]")) {
     if (a.dataset.nav === parts[0]) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
@@ -403,6 +636,11 @@ function route() {
   if (parts[0] === "actors" && parts[1]) return guarded(() => actorView(parts[1]));
   if (parts[0] === "actors") return guarded(actorsView);
   if (parts[0] === "runs" && parts[1]) return guarded(() => runView(parts[1]));
+  if (parts[0] === "storage" && parts[1] === "datasets" && parts[2]) return guarded(() => datasetView(parts[2]));
+  if (parts[0] === "storage" && parts[1] === "key-value-stores" && parts[2]) return guarded(() => kvView(parts[2]));
+  if (parts[0] === "storage") return guarded(storagesView);
+  if (parts[0] === "tasks") return guarded(tasksView);
+  if (parts[0] === "history") return guarded(historyView);
   return guarded(runsView);
 }
 
