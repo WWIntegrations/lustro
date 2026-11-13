@@ -19,6 +19,23 @@ export function isLoopbackHost(host) {
   return m !== null && m.slice(1).every((o) => Number(o) <= 255);
 }
 
+// Characters on which URL parsers disagree about the host ("http://evil.com\@127.0.0.1" is
+// evil.com to some and 127.0.0.1 to others) are refused outright, as in the Python client.
+const BASE_URL_BAD = /[\\@\s\x00-\x1f\x7f]/;
+
+export function checkBaseUrl(baseUrl) {
+  const msg = "the ww-scraper API listens on a loopback address only (a literal 127.x.x.x or [::1])";
+  if (typeof baseUrl !== "string" || BASE_URL_BAD.test(baseUrl)) {
+    throw new Error(msg + "; base URL must not contain '\\', '@', whitespace or control characters");
+  }
+  let u;
+  try { u = new URL(baseUrl); } catch (e) { throw new Error(msg); }
+  if ((u.protocol !== "http:" && u.protocol !== "https:") || u.username || u.password || !isLoopbackHost(u.hostname)) {
+    throw new Error(msg);
+  }
+  return baseUrl;
+}
+
 export class ApiError extends Error {
   constructor(status, body) {
     const err = (body && body.error) || {};
@@ -33,15 +50,15 @@ const enc = encodeURIComponent;
 
 export class Client {
   constructor(baseUrl = "http://127.0.0.1:8765", token = "", { retries = 4, backoff = 500, maxBackoff = 30000 } = {}) {
-    const host = new URL(baseUrl).hostname;
-    if (!isLoopbackHost(host)) throw new Error("the ww-scraper API listens on a loopback address only (a literal 127.x.x.x or [::1])");
-    this.base = baseUrl.replace(/\/+$/, "");
+    this.base = checkBaseUrl(baseUrl).replace(/\/+$/, "");
+    this.host = new URL(this.base).host;
     this.token = token;
     Object.assign(this, { retries, backoff, maxBackoff });
   }
 
   async request(method, path, { params, json, body, headers = {}, raw = false } = {}) {
     const url = new URL(this.base + path);
+    if (url.host !== this.host) throw new Error("request URL left the API origin");
     for (const [k, v] of Object.entries(params || {})) {
       if (v !== undefined && v !== null) url.searchParams.set(k, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
     }

@@ -121,7 +121,11 @@ console.log(JSON.stringify({{ status: run.status, items, refused, tasks: await c
 
 
 REMOTE = ["http://127.evil.example:8765", "http://127.0.0.1.nip.io", "http://localhost:8765",
-          "http://example.com:8765", "http://[::ffff:127.0.0.1]:8765", "http://10.0.0.1:8765"]
+          "http://example.com:8765", "http://[::ffff:127.0.0.1]:8765", "http://10.0.0.1:8765",
+          # parser confusion: urlsplit reads 127.0.0.1, urllib3 (what requests sends to) evil.com
+          "http://evil.com\\@127.0.0.1:8765", "http://127.0.0.1:8765\\@evil.com",
+          "http://user@127.0.0.1:8765", "http://127.0.0.1:8765 @evil.com", "http://127.0.0.1:8765\t",
+          "http://127.0.0.1:8765\x00", "ftp://127.0.0.1:8765"]
 LOCAL = ["http://127.0.0.1:8765", "http://[::1]:8765", "http://127.1.2.3:8765"]
 
 

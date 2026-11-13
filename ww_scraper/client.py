@@ -14,10 +14,12 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
+import re
 import time
 from urllib.parse import quote, urlsplit
 
 import requests
+from urllib3.util import parse_url
 
 from .compliance import is_loopback_host
 
@@ -32,13 +34,36 @@ class ApiError(RuntimeError):
         super().__init__(f"HTTP {status}: {err.get('type', '')} {err.get('message', body)}".strip())
 
 
+# characters that make URL parsers disagree on the host ("http://evil.com\@127.0.0.1" is
+# 127.0.0.1 to urlsplit but evil.com to urllib3, which is what requests sends to)
+_BASE_URL_BAD = re.compile(r"[\\@\s\x00-\x1f\x7f]")
+
+
+def check_base_url(base_url) -> str:
+    """base_url when it is http(s) to a literal loopback IP by every parser involved, else
+    ValueError. The token is only ever sent to this address."""
+    msg = "the ww-scraper API listens on a loopback address only"
+    if not isinstance(base_url, str) or _BASE_URL_BAD.search(base_url):
+        raise ValueError(msg + " (base_url must not contain '\\', '@', whitespace or control characters)")
+    try:
+        parts, u3 = urlsplit(base_url), parse_url(base_url)
+        port = parts.port
+    except ValueError:
+        raise ValueError(msg) from None
+    host = parts.hostname or ""
+    if parts.scheme not in ("http", "https") or u3.scheme != parts.scheme:
+        raise ValueError(msg)
+    if not is_loopback_host(host) or not is_loopback_host(u3.host or ""):
+        raise ValueError(msg)
+    if (u3.host or "").strip("[]").lower() != host or u3.port != port:
+        raise ValueError(msg)
+    return base_url
+
+
 class Client:
     def __init__(self, base_url: str = "http://127.0.0.1:8765", token: str = "", *, retries: int = 4,
                  backoff: float = 0.5, max_backoff: float = 30.0, timeout: float = 30.0, session=None):
-        host = urlsplit(base_url).hostname or ""
-        if not is_loopback_host(host):
-            raise ValueError("the ww-scraper API listens on a loopback address only")
-        self.base = base_url.rstrip("/")
+        self.base = check_base_url(base_url).rstrip("/")
         self.token = token
         self.retries, self.backoff, self.max_backoff, self.timeout = retries, backoff, max_backoff, timeout
         self.session = session or requests.Session()
