@@ -88,6 +88,13 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - `ww-scraper purge --older-than 30d [--dry-run]` deletes finished runs older than the age,
   with their record, log, report and unnamed storages. Named storages and runs still going
   are never touched; `--dry-run` lists what would go and its size.
+- Tasks: `ww-scraper task save <name> <actor> --input JSON [--timeout] [--dataset]`, `task
+  list`, `task show`, `task run <name> [--input JSON]` (merged over the saved input key by
+  key), `task delete`. Stored as `storage/tasks/<name>.json`, validated when saved and when
+  run; the run record carries `taskName`.
+- Schedules: `ww-scraper schedule --task NAME` prints a cron line and plist that run the
+  task; `@hourly`, `@daily`, `@weekly`, `@monthly` and `@yearly` are accepted; the output
+  says which time zone applies and `--tz` adds a `CRON_TZ` line. Still prints only.
 
 ## 0.9.0 (2026-11-12)
 

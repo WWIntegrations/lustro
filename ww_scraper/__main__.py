@@ -6,6 +6,8 @@
     ww-scraper purge --older-than 30d [--dry-run]   delete old runs and their unnamed storages
     ww-scraper serve [--port 8765]        local API on 127.0.0.1
     ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
+    ww-scraper schedule --task <name> --cron @daily                 (prints only)
+    ww-scraper task save <name> <actor> --input '<json>' | task list | task run <name>
     ww-scraper testsite [--port 8766]     local fixture website for demos/tests
     ww-scraper "<query>" [...]            v0.1 media search (unchanged)
 
@@ -22,7 +24,7 @@ import sys
 from . import search
 
 COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite", "init", "runs", "report",
-            "purge"}
+            "purge", "task"}
 
 
 def _legacy(argv) -> int:
@@ -107,10 +109,40 @@ def _parser():
     common(s)
 
     sc = sub.add_parser("schedule", help="print a cron line and a launchd plist (installs nothing)")
-    sc.add_argument("actor")
-    sc.add_argument("--cron", required=True, help="5-field cron expression")
+    sc.add_argument("actor", nargs="?", default=None)
+    sc.add_argument("--task", default=None, metavar="NAME", help="schedule a saved task instead of an actor")
+    sc.add_argument("--cron", required=True, help="5-field cron expression or @hourly/@daily/@weekly/@monthly/@yearly")
+    sc.add_argument("--tz", default=None, help="IANA time zone for cron daemons that read CRON_TZ")
     sc.add_argument("--input", default="{}")
+    sc.add_argument("--storage", default=None)
     sc.add_argument("--workdir", default=os.getcwd())
+
+    tk = sub.add_parser("task", help="saved inputs for an actor: save, list, show, run, delete")
+    tsub = tk.add_subparsers(dest="task_cmd", required=True)
+    ts = tsub.add_parser("save", help="create or replace a task")
+    ts.add_argument("name")
+    ts.add_argument("actor")
+    ts.add_argument("--input", default=None, help="input as a JSON object")
+    ts.add_argument("--input-file", default=None)
+    ts.add_argument("--timeout", type=float, default=None, metavar="SECS")
+    ts.add_argument("--dataset", default=None, metavar="NAME")
+    ts.add_argument("--storage", default=None)
+    ts.add_argument("--lang", default=None, choices=["en", "pl"])
+    tl = tsub.add_parser("list", help="list saved tasks")
+    tl.add_argument("--storage", default=None)
+    for cmd in ("show", "delete"):
+        tx = tsub.add_parser(cmd, help=f"{cmd} a task")
+        tx.add_argument("name")
+        tx.add_argument("--storage", default=None)
+    tr = tsub.add_parser("run", help="run a task; --input is merged over the saved input")
+    tr.add_argument("name")
+    tr.add_argument("--input", default=None, help="JSON object merged over the saved input")
+    tr.add_argument("--timeout", type=float, default=None, metavar="SECS")
+    tr.add_argument("--dataset", default=None, metavar="NAME")
+    tr.add_argument("--webhook", action="append", default=[])
+    tr.add_argument("--print-items", action="store_true")
+    tr.add_argument("--quiet", action="store_true")
+    common(tr)
 
     t = sub.add_parser("testsite", help="serve the bundled fixture site on 127.0.0.1")
     t.add_argument("--port", type=int, default=8766)
@@ -124,6 +156,68 @@ def _load_input(a):
     if a.input is None:
         return None if a.resume else {}
     return json.loads(a.input)
+
+
+def _print_run(storage, rec, print_items):
+    if print_items:
+        for it in storage.dataset(rec["defaultDatasetId"]).iter_items():
+            print(json.dumps(it, ensure_ascii=False))
+    else:
+        print(json.dumps(rec, ensure_ascii=False, indent=2))
+        path = storage.root / "datasets" / rec["defaultDatasetId"] / "items.jsonl"
+        # a failed run may have written nothing: do not point at a file that is not there
+        print(f"dataset: {path}" if path.exists() else "dataset: (no items written)", file=sys.stderr)
+    return 0 if rec["status"] == "SUCCEEDED" else 1
+
+
+def _task(a) -> int:
+    from .actor import InputError
+    from .storage import Storage
+    from .tasks import TaskError, delete_task, list_tasks, load_task, run_task, save_task
+    storage = Storage(a.storage)
+    try:
+        if a.task_cmd == "list":
+            tasks = list_tasks(storage)
+            for t in tasks:
+                opts = " ".join(f"{k}={v}" for k, v in (t.get("options") or {}).items())
+                print(f"{t['name']:28s} {t['actId']:24s} {t.get('modifiedAt') or '':24s} {opts}".rstrip())
+            if not tasks:
+                print("no tasks yet (ww-scraper task save <name> <actor> --input '<json>')")
+            return 0
+        if a.task_cmd == "show":
+            t = load_task(storage, a.name)
+            if t is None:
+                print(f"unknown task: {a.name}", file=sys.stderr)
+                return 2
+            print(json.dumps(t, ensure_ascii=False, indent=2))
+            return 0
+        if a.task_cmd == "delete":
+            if not delete_task(storage, a.name):
+                print(f"unknown task: {a.name}", file=sys.stderr)
+                return 2
+            print(f"deleted task {a.name}")
+            return 0
+        opts = {"timeoutSecs": a.timeout, "datasetName": a.dataset}
+        opts = {k: v for k, v in opts.items() if v is not None}
+        if a.task_cmd == "save":
+            data = _load_input(argparse.Namespace(input=a.input, input_file=a.input_file, resume=None))
+            t = save_task(storage, a.name, a.actor, data, opts, lang=a.lang)
+            print(f"saved task {t['name']} ({t['actId']})")
+            return 0
+        override = json.loads(a.input) if a.input else None
+        rec = run_task(storage, a.name, override, opts, lang=a.lang, allow_loopback=a.allow_loopback,
+                       log_stream=None if a.quiet else sys.stderr, webhooks=a.webhook or None)
+    except (TaskError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    except ValueError as e:
+        if isinstance(e, InputError):
+            for err in e.errors:
+                print(f"input: {err}", file=sys.stderr)
+        else:
+            print(f"invalid input JSON: {e}", file=sys.stderr)
+        return 2
+    return _print_run(storage, rec, a.print_items)
 
 
 def main(argv=None) -> int:
@@ -212,12 +306,29 @@ def main(argv=None) -> int:
 
     if a.cmd == "schedule":
         from .schedule import render
-        if get_actor(a.actor) is None:
-            print(f"unknown actor: {a.actor}", file=sys.stderr)
+        if a.task:
+            from .tasks import TaskError, load_task
+            try:
+                found = load_task(Storage(a.storage or os.path.join(a.workdir, "storage")), a.task)
+            except TaskError as e:
+                print(str(e), file=sys.stderr)
+                return 2
+            if found is None:
+                print(f"unknown task: {a.task} (see `ww-scraper task list`)", file=sys.stderr)
+                return 2
+        elif a.actor is None or get_actor(a.actor) is None:
+            print(f"unknown actor: {a.actor} (give an actor or --task NAME)", file=sys.stderr)
             return 2
-        json.loads(a.input)
-        print(render(a.actor, a.input, a.cron, os.path.abspath(a.workdir)))
+        try:
+            json.loads(a.input)
+            print(render(a.actor, a.input, a.cron, os.path.abspath(a.workdir), task=a.task, tz=a.tz))
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
         return 0
+
+    if a.cmd == "task":
+        return _task(a)
 
     if a.cmd == "testsite":
         from .testsite import TestSite
@@ -280,15 +391,7 @@ def main(argv=None) -> int:
         for err in e.errors:
             print(f"input: {err}", file=sys.stderr)
         return 2
-    if a.print_items:
-        for it in storage.dataset(rec["defaultDatasetId"]).iter_items():
-            print(json.dumps(it, ensure_ascii=False))
-    else:
-        print(json.dumps(rec, ensure_ascii=False, indent=2))
-        path = storage.root / "datasets" / rec["defaultDatasetId"] / "items.jsonl"
-        # a failed run may have written nothing: do not point at a file that is not there
-        print(f"dataset: {path}" if path.exists() else "dataset: (no items written)", file=sys.stderr)
-    return 0 if rec["status"] == "SUCCEEDED" else 1
+    return _print_run(storage, rec, a.print_items)
 
 
 if __name__ == "__main__":

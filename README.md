@@ -71,6 +71,8 @@ ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.
 ww-scraper runs                                       # what ran, with status, item counts and status message
 ww-scraper report <run-id>                            # one HTML file you can open or send
 ww-scraper purge --older-than 30d --dry-run           # what old runs would be deleted
+ww-scraper task save py-jobs job-postings --input '{"boards": ["lever:<company>"], "keywords": ["python"]}'
+ww-scraper task run py-jobs                           # the saved input, by name
 ww-scraper init price-watch                           # your own actor in one Python file
 ww-scraper run ./price_watch.py --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper serve                                      # local HTTP API, token required
@@ -259,6 +261,21 @@ when `WW_SCRAPER_WEBHOOK_SECRET` is set. Each request carries `X-WW-Scraper-Time
 
 `ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'` only **prints** a crontab
 line and a launchd plist. Installing them is the operator's decision.
+`ww-scraper schedule --task py-jobs --cron @daily` schedules a saved task instead; the macros
+`@hourly`, `@daily`, `@weekly`, `@monthly` and `@yearly` work in both. Times are the machine's
+local time; `--tz Europe/Warsaw` adds a `CRON_TZ` line for cron daemons that read it.
+
+### Tasks
+
+A task is a saved input (and run options such as `timeoutSecs` or `datasetName`) for one
+actor, stored in `storage/tasks/<name>.json`:
+
+```bash
+ww-scraper task save py-jobs job-postings --input '{"boards": ["lever:<company>"]}' --timeout 600
+ww-scraper task list
+ww-scraper task run py-jobs --input '{"remoteOnly": true}'   # merged over the saved input
+ww-scraper task delete py-jobs
+```
 
 ## Media sources (v0.1)
 

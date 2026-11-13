@@ -418,7 +418,7 @@ def get_actor(name):
 
 
 def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, lang=None,
-                options=None):
+                options=None, task_name=None):
     """Validate input and create (or reopen, to resume) a run record. Raises InputError
     for bad input and KeyError for an unknown actor. options: run options (see
     RUN_OPTIONS_SCHEMA); a resumed run keeps its earlier options unless given new ones."""
@@ -456,6 +456,7 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
         "statusMessage": "",
         "resumedFrom": prev.get("status") if prev else None,
         "options": opts,
+        "taskName": task_name or prev.get("taskName"),
         "defaultDatasetId": run_id,
         "defaultKeyValueStoreId": run_id,
         "defaultRequestQueueId": run_id,
@@ -553,13 +554,14 @@ def request_abort(run_id) -> bool:
 
 def run_actor(actor_name, input=None, storage: Storage = None, *, run_id=None, lang=None,
               allow_loopback=False, log_stream=None, abort_event=None, webhooks=None,
-              options=None, timeout_secs=None):
+              options=None, timeout_secs=None, task_name=None):
     """Validate, create and execute a run synchronously. Returns the final record.
     timeout_secs is a shortcut for options={"timeoutSecs": ...}."""
     storage = storage or Storage()
     if timeout_secs is not None:
         options = dict(options or {}, timeoutSecs=timeout_secs)
-    rec = prepare_run(actor_name, input, storage, run_id=run_id, lang=lang, options=options)
+    rec = prepare_run(actor_name, input, storage, run_id=run_id, lang=lang, options=options,
+                      task_name=task_name)
     return execute_run(rec, storage, allow_loopback=allow_loopback, log_stream=log_stream,
                        abort_event=abort_event, webhooks=webhooks)
 
