@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `places` checks each Overpass instance's `/api/status` (10 s) before the query. A server
+  whose web front answers while the backend hangs used to cost two 75 s timeouts and five
+  minutes in all; it now fails in about 10 s with a message saying what to do.
+  `WW_SCRAPER_OVERPASS` (comma-separated https URLs) sets instances of your own or of an
+  operator you trust. No other public instance is added: the main one disallows the API in
+  robots.txt, one is for listed users only, one covers a single country, and the choice of
+  a third-party operator is left to whoever runs the scraper.
+- `places` output says `phonesMasked`: business phones come from open data, but a sole
+  trader's number is personal data, so they stay masked unless `redactPii` is off.
 Defects found while measuring 150 local business sites; seven of them changed results.
 
 - `contact-details` read nothing from the third or fourth start URL on: each site's crawl
