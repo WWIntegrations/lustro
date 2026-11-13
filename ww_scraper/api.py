@@ -7,7 +7,7 @@ address are refused (DNS-rebinding guard), browser requests carrying a non-loopb
 Origin are refused (CSRF guard), and POST bodies must be application/json.
 
     GET  /v2/acts
-    POST /v2/acts/<name>/runs[?waitForFinish=<s>&timeout=<s>&dataset=<name>&webhooks=<base64 JSON>]   body = input
+    POST /v2/acts/<name>/runs[?waitForFinish=<s>&timeout=<s>&dataset=<name>&maxItems=<n>&webhooks=<base64 JSON>]   body = input
     GET  /v2/actor-runs
     GET  /v2/actor-runs/<id>
     POST /v2/actor-runs/<id>/abort
@@ -301,6 +301,12 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._error(400, "invalid-request", "timeout must be a number of seconds")
         if q.get("dataset"):
             options["datasetName"] = q["dataset"]
+        for key in ("maxItems", "maxRequests", "maxBytes"):
+            if q.get(key):
+                try:
+                    options[key] = int(q[key])
+                except ValueError:
+                    return self._error(400, "invalid-request", f"{key} must be a whole number")
         try:
             rec = self.ctx.start_run(actor.name, data, webhooks=webhooks, options=options)
         except InputError as e:

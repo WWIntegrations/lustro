@@ -112,6 +112,9 @@ Defects found while measuring 150 local business sites; seven of them changed re
 - `pipeline` actor: steps run one after another, a field of one step's items feeding the
   start URLs of the next (`sitemap` then `seo-audit`); every step's input is validated before
   the first one starts.
+- Run budgets: `maxItems`, `maxRequests` and `maxBytes` (CLI `--max-items` and so on, API
+  query parameters, top-level input keys or task options) stop a run cleanly: it ends
+  SUCCEEDED with `stopped at maxItems=100`, and `maxItems` keeps exactly that many items.
 
 ## 0.9.0 (2026-11-12)
 
