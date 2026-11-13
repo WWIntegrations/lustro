@@ -11,7 +11,8 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
     GET  /v2/actor-runs
     GET  /v2/actor-runs/<id>
     POST /v2/actor-runs/<id>/abort
-    GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html[&offset=&limit=&fields=a,b]
+    GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html|rss[&offset=&limit=&fields=a,b
+         &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1]
     GET  /v2/key-value-stores/<id>/records/<key>
     GET  /v2/actor-runs/<id>/log                        last 256 KB of the run log
     GET  /console                                       web console (static files only)
@@ -223,9 +224,13 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 offset = int(q.get("offset", 0))
                 limit = int(q["limit"]) if "limit" in q else None
-                fields = [f.strip() for f in q["fields"].split(",")] if q.get("fields") else None
+                split = lambda k: [f.strip() for f in q[k].split(",")] if q.get(k) else None
+                flag = lambda k: q.get(k, "").lower() in ("1", "true", "yes")
                 fmt = q.get("format", "json")
-                body, ctype = st.dataset(did).export(fmt, offset, limit, fields)
+                body, ctype = st.dataset(did).export(fmt, offset, limit, split("fields"),
+                                                     omit=split("omit"), flatten=flag("flatten"),
+                                                     unwind=q.get("unwind") or None,
+                                                     desc=flag("desc"), clean=flag("clean"))
             except (ValueError, StorageError) as e:
                 return self._error(400, "invalid-request", str(e))
             extra = {}

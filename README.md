@@ -114,7 +114,7 @@ Stored under `./storage/` (or `$WW_SCRAPER_STORAGE_DIR`), laid out as:
 
 | Primitive      | What it is                                                              |
 |----------------|-------------------------------------------------------------------------|
-| `Dataset`      | append-only JSONL; export as `json`, `jsonl`, `csv`, `xlsx`, `xml` or `html`, with `fields` to pick and order columns (formulas never evaluated) |
+| `Dataset`      | append-only JSONL; export as `json`, `jsonl`, `csv`, `xlsx`, `xml`, `html` or `rss`, with `fields` to pick and order columns, `omit`, `flatten`, `unwind`, `desc` and `clean` (formulas never evaluated) |
 | `KeyValueStore`| named files with their content-type (`INPUT`, `OUTPUT`, `llms.txt`...)   |
 | `RequestQueue` | durable, deduplicated by `unique_key`, resumable after a crash           |
 | `Actor`        | name + `input_schema` (validated, errors in English or Polish) + `run(ctx)` |
@@ -158,6 +158,8 @@ ww-scraper run website-content-crawler --input-file input.json --print-items
 ww-scraper run sitemap --resume <run-id>            # continue an interrupted run
 ww-scraper export <dataset-id> --format csv
 ww-scraper export <dataset-id> --format xlsx --fields url,title --out items.xlsx
+ww-scraper export <dataset-id> --format csv --flatten --unwind emails --omit pagesRead
+ww-scraper export <dataset-id> --format rss --desc > feed.xml   # new postings in a feed reader
 ww-scraper run robots-audit --input '{"startUrls": ["https://example.com/"], "testPaths": ["/", "/admin"]}'
 ww-scraper run change-monitor --input '{"startUrls": ["https://example.com/"], "monitorName": "example"}'
 ```
@@ -215,7 +217,7 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 | `GET /v2/acts` | list actors with input schemas |
 | `POST /v2/acts/<name>/runs?waitForFinish=60&timeout=300` | start a run, body = input JSON |
 | `GET /v2/actor-runs/<id>` | run record (`POST .../abort` to stop) |
-| `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html&fields=a,b` | items (HTML served with `CSP: sandbox`) |
+| `GET /v2/datasets/<id>/items?format=json\|jsonl\|csv\|xlsx\|xml\|html\|rss&fields=a,b&omit=c&flatten=1&unwind=d&desc=1&clean=1` | items (HTML served with `CSP: sandbox`) |
 | `GET /v2/key-value-stores/<id>/records/<key>` | a record with its content-type |
 | `GET /v2/actor-runs/<id>/log` | the last 256 KB of the run log |
 | `GET /console` | the web console below |

@@ -39,7 +39,7 @@ Source: [`ww_scraper/actor.py`](../ww_scraper/actor.py), [`tests/test_actor_core
 
 ## What a run writes
 
-Each run has a dataset, a key-value store and a request queue that share the run id. The queue is durable, so an interrupted run resumes where it stopped. A storage opened by name (`ctx.dataset("leads")`) is shared by every run that uses the name. `ww-scraper purge --older-than` deletes finished runs and their unnamed storages only; named storages are never purged.
+Each run has a dataset, a key-value store and a request queue that share the run id. The queue is durable, so an interrupted run resumes where it stopped. A storage opened by name (`ctx.dataset("leads")`) is shared by every run that uses the name. `ww-scraper purge --older-than` deletes finished runs and their unnamed storages only; named storages are never purged. An export goes through one view (clean, unwind, omit, flatten, fields) before it is written as JSON, JSONL, CSV, XLSX, XML, HTML or RSS.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="system-map/storage-layout-dark.svg">
