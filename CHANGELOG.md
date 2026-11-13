@@ -135,6 +135,18 @@ Defects found while measuring 150 local business sites; seven of them changed re
   stored `INPUT`, a task file or the run log (its value is replaced by `[secret]`); with
   `"env": "NAME"` it is read from that environment variable when not given, which is also
   how a task or a resumed run gets it. The console shows it as a password field.
+- Actor schemas (`ww_scraper/schema.py`):
+  - `output_schema`: named outputs with URL templates, resolved into the run record as
+    `output` and listed on the console run page;
+  - `dataset_schema`: a JSON Schema for one item, checked on every push (one invalid item
+    rejects the whole push with `SchemaValidationError`, counted as `invalidItems`), plus
+    named views used by `export --view NAME` and `?view=NAME`;
+  - `kv_schema`: collections of keys (`key` or `keyPrefix`) with allowed content types and
+    a JSON Schema, checked on `ctx.set_value`; `KeyValueStore.keys(collection=...)`.
+  - `job-postings`, `places`, `contact-details`, `product-catalog` and `lead-list` declare
+    item schemas and an overview view.
+- Actor versions: `Actor.version` (the package version when not set) is shown by
+  `GET /v2/acts` and written to each run record as `actVersion`.
 
 ## 0.9.0 (2026-11-12)
 

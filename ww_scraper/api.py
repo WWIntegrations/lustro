@@ -14,7 +14,7 @@ Origin are refused (CSRF guard), and POST bodies must be application/json.
     POST /v2/actor-runs/<id>/resurrect[?timeout=<s>&waitForFinish=<s>]   run a finished run again
                                                         with its storages and stored input
     GET  /v2/datasets/<id>/items?format=json|jsonl|csv|xlsx|xml|html|rss[&offset=&limit=&fields=a,b
-         &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1]
+         &omit=a,b.c&flatten=1&unwind=field&desc=1&clean=1&view=name]
     GET  /v2/key-value-stores/<id>/records/<key>
     GET  /v2/actor-runs/<id>/log                        last 256 KB of the run log
     GET  /console                                       web console (static files only)
@@ -232,7 +232,8 @@ class _Handler(BaseHTTPRequestHandler):
                 body, ctype = st.dataset(did).export(fmt, offset, limit, split("fields"),
                                                      omit=split("omit"), flatten=flag("flatten"),
                                                      unwind=q.get("unwind") or None,
-                                                     desc=flag("desc"), clean=flag("clean"))
+                                                     desc=flag("desc"), clean=flag("clean"),
+                                                     view=q.get("view") or None)
             except (ValueError, StorageError) as e:
                 return self._error(400, "invalid-request", str(e))
             extra = {}

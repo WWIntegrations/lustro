@@ -9,6 +9,7 @@ import datetime
 import hashlib
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
+from ..schema import STR_OR_NULL
 from ._api import embedded_json, fetch_body, first, get_json, html_to_text, valid_slug
 from .structured_data import flatten_jsonld
 
@@ -135,6 +136,24 @@ def jobposting(obj, page_url):
 
 class JobPostings(Actor):
     name = "job-postings"
+    version = "1.1.0"
+    dataset_schema = {
+        "fields": {"type": "object", "required": ["source", "title", "url", "company", "location", "remote", "postedAt"],
+                   "properties": {
+                       "source": {"type": "string", "enum": ["greenhouse", "lever", "ashby", "schema.org"]},
+                       "company": STR_OR_NULL, "id": STR_OR_NULL, "title": STR_OR_NULL, "url": STR_OR_NULL,
+                       "applyUrl": STR_OR_NULL, "location": STR_OR_NULL, "remote": {"type": ["boolean", "null"]},
+                       "department": STR_OR_NULL, "employmentType": STR_OR_NULL, "salary": STR_OR_NULL,
+                       "postedAt": STR_OR_NULL, "description": STR_OR_NULL}},
+        "views": {"overview": {"title": "Overview", "fields": ["title", "company", "location", "remote", "salary",
+                                                                "postedAt", "applyUrl"]}},
+    }
+    output_schema = {
+        "items": {"title": "Postings", "template": "/v2/datasets/{defaultDatasetId}/items"},
+        "overview": {"title": "Overview (CSV)", "template": "/v2/datasets/{defaultDatasetId}/items?view=overview&format=csv"},
+        "feed": {"title": "Postings as RSS", "template": "/v2/datasets/{defaultDatasetId}/items?format=rss"},
+        "summary": {"title": "Summary (OUTPUT)", "template": "/v2/key-value-stores/{defaultKeyValueStoreId}/records/OUTPUT"},
+    }
     title = "Job Postings"
     description = ("Open positions from public job boards (Greenhouse, Lever, Ashby) and "
                    "schema.org JobPosting data on careers pages, normalised, filtered, new-only on request.")

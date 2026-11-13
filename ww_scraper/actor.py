@@ -217,20 +217,42 @@ REDACT = {"type": "boolean", "default": True,
           "description": "Mask e-mail addresses and phone numbers in output (GDPR default)"}
 
 
+DEFAULT_OUTPUT = {
+    "items": {"title": "Items", "template": "/v2/datasets/{defaultDatasetId}/items"},
+    "summary": {"title": "Summary (OUTPUT)",
+                "template": "/v2/key-value-stores/{defaultKeyValueStoreId}/records/OUTPUT"},
+}
+
+
 class Actor:
-    """Subclass, set name/title/description/input_schema and implement run(ctx)."""
+    """Subclass, set name/title/description/input_schema and implement run(ctx).
+    Optional: version, output_schema, dataset_schema, kv_schema (see ww_scraper/schema.py)."""
 
     name = ""
     title = ""
     description = ""
+    version = ""                 # empty: the package version
     input_schema: dict = {"type": "object", "properties": {}}
+    output_schema: dict = DEFAULT_OUTPUT
+    dataset_schema: dict = None
+    kv_schema: dict = None
 
     def run(self, ctx: "RunContext") -> None:  # pragma: no cover - abstract
         raise NotImplementedError
 
+    def get_version(self) -> str:
+        from ._version import __version__
+        return self.version or __version__
+
     def describe(self) -> dict:
-        return {"id": self.name, "name": self.name, "title": self.title,
-                "description": self.description, "inputSchema": self.input_schema}
+        d = {"id": self.name, "name": self.name, "title": self.title, "version": self.get_version(),
+             "description": self.description, "inputSchema": self.input_schema,
+             "outputSchema": self.output_schema}
+        if self.dataset_schema:
+            d["datasetSchema"] = self.dataset_schema
+        if self.kv_schema:
+            d["keyValueStoreSchema"] = self.kv_schema
+        return d
 
 
 # --- run context -----------------------------------------------------------------------
@@ -530,8 +552,17 @@ class RunContext:
         self.persist_state()
 
     def push_data(self, items) -> int:
+        """Store items. With a dataset_schema on the actor, every item is checked first and
+        one invalid item rejects the whole push (SchemaValidationError)."""
         if isinstance(items, dict):
             items = [items]
+        fields = (self.actor.dataset_schema or {}).get("fields") if self.actor is not None else None
+        if fields:
+            from .schema import SchemaValidationError, check
+            errors = [e for i, it in enumerate(items) for e in check(fields, it, f"item[{i}]")]
+            if errors:
+                self.stats["invalidItems"] = self.stats.get("invalidItems", 0) + len(items)
+                raise SchemaValidationError(errors)
         if "maxItems" in self.budgets:
             items = list(items)[:max(0, self.budgets["maxItems"] - self.stats["items"])]
         if self.redact:
@@ -544,6 +575,14 @@ class RunContext:
         return redact_pii(text) if self.redact else text
 
     def set_value(self, key, value, content_type=None):
+        schema = self.actor.kv_schema if self.actor is not None else None
+        if schema:
+            from .schema import SchemaValidationError, check_record
+            ctype = content_type or ("application/octet-stream" if isinstance(value, bytes)
+                                     else "text/plain" if isinstance(value, str) else "application/json")
+            errors = check_record(schema, key, value, ctype)
+            if errors:
+                raise SchemaValidationError(errors)
         self.kv.set(key, value, content_type)
 
     def record_failure(self, url, reason):
@@ -618,6 +657,7 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
         "resumedFrom": prev.get("status") if prev else None,
         "options": opts,
         "taskName": task_name or prev.get("taskName"),
+        "actVersion": actor.get_version(),
         "defaultDatasetId": run_id,
         "defaultKeyValueStoreId": run_id,
         "defaultRequestQueueId": run_id,
@@ -627,7 +667,13 @@ def prepare_run(actor_name, input=None, storage: Storage = None, run_id=None, la
     held = {k: clean.pop(k) for k in secrets if k in clean}
     if held:
         _SECRETS[run_id] = held      # in this process only, handed to the run when it starts
+    from .schema import resolve_output
+    rec["output"] = resolve_output(actor.output_schema, rec)
     storage.kv(run_id).set("INPUT", clean)
+    if actor.dataset_schema:
+        storage.dataset(run_id).set_schema(actor.dataset_schema)
+    if actor.kv_schema:
+        storage.kv(run_id).set_schema(actor.kv_schema)
     storage.save_run(rec)
     return rec
 

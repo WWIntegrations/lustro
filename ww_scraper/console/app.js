@@ -276,6 +276,28 @@ async function actorView(name) {
   if (first) first.focus();
 }
 
+async function downloadPath(path, filename) {
+  // only paths on this API: the output schema of an actor can never send the token elsewhere
+  if (typeof path !== "string" || !path.startsWith("/v2/")) return;
+  const res = await api(path);
+  if (!res.ok) return;
+  const url = URL.createObjectURL(await res.blob());
+  const a = el("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function outputsList(rec) {
+  const outs = Object.entries(rec.output || {});
+  if (!outs.length) return null;
+  return el("ul", { class: "outputs", id: "outputs" }, outs.map(([name, o]) => el("li", {},
+    el("button", { class: "btn", type: "button", text: (o && o.title) || name,
+      onclick: () => downloadPath(o && o.url, (rec.id || "run") + "-" + name) }),
+    " ", el("code", { text: (o && o.url) || "" }))));
+}
+
 async function download(rec, fmt) {
   const res = await api("/v2/datasets/" + encodeURIComponent(rec.defaultDatasetId || rec.id) + "/items?format=" + fmt);
   if (!res.ok) return;
@@ -344,6 +366,8 @@ async function runView(id) {
       FORMATS.map((f) => el("button", { class: "btn", type: "button", text: f.toUpperCase(),
         onclick: () => download(rec, f) }))),
     list.length ? itemsTable(list) : el("p", { class: "note", text: live ? "No items yet." : "This run produced no items." }),
+    rec.output ? el("h2", { text: "Outputs" }) : null,
+    outputsList(rec),
     el("h2", { text: "Log" }),
     el("pre", { class: "log", id: "log", text: logText || "(empty)" }),
     el("h2", { text: "Input" }),

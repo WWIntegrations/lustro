@@ -9,6 +9,7 @@ and phones from running text masked unless redactPii is off).
 from __future__ import annotations
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
+from ..schema import STR_OR_NULL
 from .places import ATTRIBUTION, CATEGORIES
 
 CHUNK = 100                      # contact-details takes up to 100 start URLs per run
@@ -26,6 +27,28 @@ def _site_key(url: str) -> str:
 
 class LeadList(Actor):
     name = "lead-list"
+    version = "1.0.0"
+    dataset_schema = {
+        "fields": {"type": "object", "required": ["name", "category", "address", "website", "emails", "phones",
+                                                  "socialProfiles", "source"],
+                   "properties": {
+                       "name": STR_OR_NULL, "category": STR_OR_NULL, "address": STR_OR_NULL, "website": STR_OR_NULL,
+                       "emails": {"type": "array", "items": {"type": "string"}},
+                       "phones": {"type": "array", "items": {"type": "string"}},
+                       "socialProfiles": {"type": "object"},
+                       "source": {"type": "object", "required": ["osmUrl", "license"]}}},
+        "views": {"spreadsheet": {"title": "Spreadsheet", "flatten": True,
+                                  "fields": ["name", "category", "address", "website", "emails", "phones",
+                                             "socialProfiles.linkedin", "socialProfiles.facebook",
+                                             "socialProfiles.instagram", "source.osmUrl"]}},
+    }
+    kv_schema = {"collections": {"summary": {"key": "OUTPUT", "contentTypes": ["application/json"],
+                                             "jsonSchema": {"type": "object", "required": ["leads", "attribution"]}}}}
+    output_schema = {
+        "items": {"title": "Leads", "template": "/v2/datasets/{defaultDatasetId}/items"},
+        "spreadsheet": {"title": "Leads (CSV)", "template": "/v2/datasets/{defaultDatasetId}/items?view=spreadsheet&format=csv"},
+        "summary": {"title": "Summary (OUTPUT)", "template": "/v2/key-value-stores/{defaultKeyValueStoreId}/records/OUTPUT"},
+    }
     title = "Lead List (places + contact details)"
     description = ("Businesses by category and area from OpenStreetMap, each joined with the e-mails, "
                    "phones and social profiles it publishes on its own website. Role contacts kept, "
