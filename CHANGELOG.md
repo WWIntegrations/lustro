@@ -153,6 +153,12 @@ Defects found while measuring 150 local business sites; seven of them changed re
   `DELETE /v2/actor-runs/<id>`; task routes (`/v2/actor-tasks`); run statistics
   (`/v2/stats/runs`); and the whole API as OpenAPI 3.1 at `/v2/openapi.json` and in
   `docs/openapi.json`.
+- `ww_scraper.client`: `Client` and `AsyncClient` for a running `ww-scraper serve`: runs
+  (start, wait, call, run-sync items, abort, resurrect, log), storages, records, tasks and
+  stats; connection errors, 429 and 5xx retried with exponential backoff and Retry-After;
+  refuses a non-loopback base URL.
+- `clients/js/ww-scraper-client.mjs`: the same client for Node 18+ in one dependency-free
+  file; other languages can generate one from `docs/openapi.json`.
 - Actor versions: `Actor.version` (the package version when not set) is shown by
   `GET /v2/acts` and written to each run record as `actVersion`.
 

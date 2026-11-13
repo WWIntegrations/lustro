@@ -246,6 +246,20 @@ ww-scraper serve --port 8765               # binds to 127.0.0.1 only
 | `GET /v2/openapi.json` | this API as OpenAPI 3.1 (also [`docs/openapi.json`](docs/openapi.json)) |
 | `GET /console` | the web console below |
 
+From Python, `ww_scraper.client` talks to a running `serve` (sync `Client`, async `AsyncClient`,
+retries with backoff):
+
+```python
+from ww_scraper.client import Client
+c = Client("http://127.0.0.1:8765", token="...")
+rec = c.call("sitemap", {"startUrls": ["https://example.com/"]})
+print(c.items(rec["defaultDatasetId"], fields=["url"]))
+```
+
+From JavaScript, [`clients/js/ww-scraper-client.mjs`](clients/js/ww-scraper-client.mjs) has the
+same calls without dependencies (Node 18+); any other language can generate a client from
+[`docs/openapi.json`](docs/openapi.json).
+
 ### Console
 
 `ww-scraper serve` also prints a console link (`http://127.0.0.1:8765/console#token=...`).
