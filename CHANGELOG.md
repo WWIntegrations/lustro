@@ -72,6 +72,13 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- Post-run checks: `"checks"` in the run options (`--checks JSON` on `run`, `task save` and
+  `task run`, `?checks=` on the API, or a top-level input key) with `minItems`, `maxItems`,
+  `maxFailed`, `maxFailedRatio`, `maxDurationSecs`, `statuses` and `fieldFillRate`
+  (`{"email": 0.5}`, dotted paths allowed). They are evaluated after the run and stored on
+  the record as `checks` (`passed` plus one result per check); the status is not changed.
+  The CLI exits with code 3 when a check failed, and webhooks without `eventTypes` also get
+  `ACTOR.RUN.CHECKS_FAILED`.
 - Run timeout: `--timeout SECS` on `ww-scraper run`, `?timeout=` on the API, or
   `"timeoutSecs"` as a top-level input key. A run over its time is asked to stop, shows
   TIMING-OUT while the actor winds down and ends TIMED-OUT with the items it stored. A stop

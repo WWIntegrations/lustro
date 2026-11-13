@@ -215,6 +215,15 @@
             "description": ""
           },
           {
+            "name": "checks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "JSON object of post-run checks, e.g. {\"minItems\": 1}"
+          },
+          {
             "name": "waitForFinish",
             "in": "query",
             "required": false,
@@ -407,6 +416,15 @@
             "description": ""
           },
           {
+            "name": "checks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "JSON object of post-run checks, e.g. {\"minItems\": 1}"
+          },
+          {
             "name": "waitForFinish",
             "in": "query",
             "required": false,
@@ -550,6 +568,15 @@
             "description": ""
           },
           {
+            "name": "checks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "JSON object of post-run checks, e.g. {\"minItems\": 1}"
+          },
+          {
             "name": "waitForFinish",
             "in": "query",
             "required": false,
@@ -647,6 +674,15 @@
               "type": "integer"
             },
             "description": ""
+          },
+          {
+            "name": "checks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "JSON object of post-run checks, e.g. {\"minItems\": 1}"
           },
           {
             "name": "waitForFinish",
@@ -836,6 +872,15 @@
               "type": "integer"
             },
             "description": ""
+          },
+          {
+            "name": "checks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "JSON object of post-run checks, e.g. {\"minItems\": 1}"
           },
           {
             "name": "waitForFinish",

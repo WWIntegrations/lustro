@@ -70,6 +70,8 @@ def _parser():
                    help="stop the run after SECS seconds; it ends TIMED-OUT with what it stored")
     r.add_argument("--dataset", default=None, metavar="NAME",
                    help="also append the items to this named dataset (kept across runs)")
+    r.add_argument("--checks", default=None, metavar="JSON", type=_json_object,
+                   help='post-run checks, e.g. \'{"minItems": 1}\'; exit code 3 when one fails')
     for flag, what in (("--max-items", "items stored"), ("--max-requests", "HTTP requests"),
                        ("--max-bytes", "bytes downloaded")):
         r.add_argument(flag, type=int, default=None, metavar="N", help=f"stop cleanly after N {what}")
@@ -138,6 +140,7 @@ def _parser():
     ts.add_argument("--input-file", default=None)
     ts.add_argument("--timeout", type=float, default=None, metavar="SECS")
     ts.add_argument("--dataset", default=None, metavar="NAME")
+    ts.add_argument("--checks", default=None, metavar="JSON", type=_json_object, help="post-run checks saved with the task")
     ts.add_argument("--storage", default=None)
     ts.add_argument("--lang", default=None, choices=["en", "pl"])
     tl = tsub.add_parser("list", help="list saved tasks")
@@ -151,6 +154,7 @@ def _parser():
     tr.add_argument("--input", default=None, help="JSON object merged over the saved input")
     tr.add_argument("--timeout", type=float, default=None, metavar="SECS")
     tr.add_argument("--dataset", default=None, metavar="NAME")
+    tr.add_argument("--checks", default=None, metavar="JSON", type=_json_object)
     tr.add_argument("--webhook", action="append", default=[])
     tr.add_argument("--print-items", action="store_true")
     tr.add_argument("--quiet", action="store_true")
@@ -170,9 +174,19 @@ def _load_input(a):
     return json.loads(a.input)
 
 
+def _json_object(text):
+    try:
+        value = json.loads(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"not valid JSON: {e}") from None
+    if not isinstance(value, dict):
+        raise argparse.ArgumentTypeError("expected a JSON object")
+    return value
+
+
 def _run_options(a):
     opts = {"datasetName": a.dataset, "maxItems": a.max_items, "maxRequests": a.max_requests,
-            "maxBytes": a.max_bytes}
+            "maxBytes": a.max_bytes, "checks": getattr(a, "checks", None)}
     return {k: v for k, v in opts.items() if v is not None} or None
 
 
@@ -185,7 +199,13 @@ def _print_run(storage, rec, print_items):
         path = storage.root / "datasets" / rec["defaultDatasetId"] / "items.jsonl"
         # a failed run may have written nothing: do not point at a file that is not there
         print(f"dataset: {path}" if path.exists() else "dataset: (no items written)", file=sys.stderr)
-    return 0 if rec["status"] == "SUCCEEDED" else 1
+    if rec["status"] != "SUCCEEDED":
+        return 1
+    if rec.get("checks") and not rec["checks"]["passed"]:
+        print("checks failed: " + ", ".join(r["check"] for r in rec["checks"]["results"] if not r["passed"]),
+              file=sys.stderr)
+        return 3
+    return 0
 
 
 def _task(a) -> int:
@@ -215,7 +235,8 @@ def _task(a) -> int:
                 return 2
             print(f"deleted task {a.name}")
             return 0
-        opts = {"timeoutSecs": a.timeout, "datasetName": a.dataset}
+        opts = {"timeoutSecs": a.timeout, "datasetName": a.dataset,
+                "checks": a.checks}
         opts = {k: v for k, v in opts.items() if v is not None}
         if a.task_cmd == "save":
             data = _load_input(argparse.Namespace(input=a.input, input_file=a.input_file, resume=None))
