@@ -35,6 +35,8 @@ class _Server:
                 path = urlsplit(self.path).path
                 if path == "/robots.txt":
                     body, ctype, code = "User-agent: *\nAllow: /\n", "text/plain", 200
+                elif path == "/api/status":
+                    body, ctype, code = "Connected as: 1\n2 slots available now.\n", "text/plain", 200
                 elif path == "/api/interpreter":
                     srv.overpass_calls += 1
                     body, ctype, code = json.dumps(srv.overpass()), "application/json", 200
