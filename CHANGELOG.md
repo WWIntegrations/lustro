@@ -145,6 +145,14 @@ Defects found while measuring 150 local business sites; seven of them changed re
     a JSON Schema, checked on `ctx.set_value`; `KeyValueStore.keys(collection=...)`.
   - `job-postings`, `places`, `contact-details`, `product-catalog` and `lead-list` declare
     item schemas and an overview view.
+- API: `GET /v2/acts/<name>`; `POST /v2/acts/<name>/run-sync-get-dataset-items` (one call
+  in, items out, in any export format and view) and `.../run-sync` (returns `OUTPUT`), both
+  capped at 300 s; list, read and delete datasets, key-value stores and request queues
+  (`?named=1` for named ones; a running run's storages are refused with 409); store keys
+  with `?collection=`; `PUT` and `DELETE` of one record; queue `requests` and `head`;
+  `DELETE /v2/actor-runs/<id>`; task routes (`/v2/actor-tasks`); run statistics
+  (`/v2/stats/runs`); and the whole API as OpenAPI 3.1 at `/v2/openapi.json` and in
+  `docs/openapi.json`.
 - Actor versions: `Actor.version` (the package version when not set) is shown by
   `GET /v2/acts` and written to each run record as `actVersion`.
 

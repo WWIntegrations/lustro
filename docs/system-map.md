@@ -94,7 +94,7 @@ Source: [`ww_scraper/actors/__init__.py`](../ww_scraper/actors/__init__.py), [`t
 
 ## Local HTTP API
 
-The API binds to loopback only and always asks for a Bearer token. A foreign Host or Origin header is refused, which closes DNS rebinding and browser CSRF.
+The API binds to loopback only and always asks for a Bearer token. A foreign Host or Origin header is refused, which closes DNS rebinding and browser CSRF. It covers actors, runs (including synchronous runs that return items), tasks, every storage kind and run statistics, and describes itself as OpenAPI 3.1 at `/v2/openapi.json` ([`docs/openapi.json`](openapi.json)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="system-map/local-api-dark.svg">
