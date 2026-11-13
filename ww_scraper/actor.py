@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import sys
 import threading
 import time
@@ -33,6 +34,7 @@ _MSG = {
         "max_items": "{f}: at most {v} item(s) allowed",
         "min_len": "{f}: must be at least {v} character(s)",
         "max_len": "{f}: must be at most {v} character(s)",
+        "pattern": "{f}: contains characters that are not allowed",
         "enum": "{f}: must be one of {v}",
         "item_type": "{f}[{i}]: expected {t}",
     },
@@ -47,6 +49,7 @@ _MSG = {
         "max_items": "{f}: dozwolone najwyżej {v} element(ów)",
         "min_len": "{f}: co najmniej {v} znak(ów)",
         "max_len": "{f}: najwyżej {v} znak(ów)",
+        "pattern": "{f}: zawiera niedozwolone znaki",
         "enum": "{f}: dozwolone wartości: {v}",
         "item_type": "{f}[{i}]: oczekiwano typu {t}",
     },
@@ -75,7 +78,9 @@ def default_lang() -> str:
 
 def validate_input(schema: dict, data, lang: str = None):
     """Validate data against a small JSON-Schema subset (type, required, default, enum,
-    minimum/maximum, minLength/maxLength, minItems/maxItems, items.type).
+    minimum/maximum, minLength/maxLength, pattern, minItems/maxItems, items.type).
+    An array of strings also takes {"url": "..."} objects, the shape other scraping
+    platforms use for start URLs; they are reduced to the URL string.
     Returns (clean_input, errors); errors are in English or Polish (lang='pl')."""
     m = _MSG.get((lang or default_lang())[:2], _MSG["en"])
     errors: list = []
@@ -98,6 +103,10 @@ def validate_input(schema: dict, data, lang: str = None):
             continue
         v = data[key]
         t = spec.get("type")
+        if (t == "array" and isinstance(v, list)
+                and (spec.get("items") or {}).get("type") == "string"):
+            v = [el["url"] if isinstance(el, dict) and isinstance(el.get("url"), str) else el
+                 for el in v]
         if t == "number" and isinstance(v, int) and not isinstance(v, bool):
             v = float(v)
         if t and not _TYPES[t](v):
@@ -115,6 +124,8 @@ def validate_input(schema: dict, data, lang: str = None):
                 errors.append(m["min_len"].format(f=key, v=spec["minLength"]))
             if "maxLength" in spec and len(v) > spec["maxLength"]:
                 errors.append(m["max_len"].format(f=key, v=spec["maxLength"]))
+            if "pattern" in spec and not re.fullmatch(spec["pattern"], v):
+                errors.append(m["pattern"].format(f=key))
         if t == "array":
             if "minItems" in spec and len(v) < spec["minItems"]:
                 errors.append(m["min_items"].format(f=key, v=spec["minItems"]))

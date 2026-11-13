@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- robots.txt that cannot be read because of the network (timeout, refused connection, DNS)
+  is retried twice with backoff. If it still fails, the page is a recorded failure
+  (`network: robots.txt not read: ConnectTimeout ...`, `stats.robotsUnread`), not a
+  robots.txt block, and the origin is asked again after 60 s. Before, one passing network
+  error was reported as "robots.txt unreachable (HTTP 0)", counted in `robotsBlocked` and
+  cut the whole origin off for the rest of the run (18 of 60 sites in one research run).
+- A 4xx/5xx answer with an unexpected content-type is reported by its status first
+  (`HTTP 402 (content-type: none)`), not by the content-type alone.
+- String-array inputs such as `startUrls` also take `{"url": "..."}` objects, the shape
+  other scraping platforms use, so their inputs can be reused as they are.
+- Input validation enforces `pattern`; `acceptLanguage` rejects anything but language
+  tags, so it cannot carry a second header.
 - A start URL that answers 4xx or 5xx is now a recorded failure (`stats.failed`,
   `FAILED_REQUESTS`, a warning in the run log) in `website-content-crawler`,
   `contact-details`, `product-catalog` and the careers-page path of `job-postings`. Before,

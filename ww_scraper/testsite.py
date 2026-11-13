@@ -185,6 +185,7 @@ class _Handler(BaseHTTPRequestHandler):
             "/changing": lambda: self._changing(),
             "/cached": lambda: self._cached(),
             "/js": lambda: self._send(200, JS_PAGE),
+            "/paywall": lambda: self._send(402, "", ""),
             "/shell": lambda: self._send(200, '<!doctype html><html><head><title>App</title>'
                                               '</head><body><div id="root"></div></body></html>'),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
