@@ -205,6 +205,8 @@ class JobPostings(Actor):
 
         def on_page(res, req, doc):
             if doc is None:
+                if res.error or (res.status and res.status >= 400):
+                    ctx.record_failure(req["url"], res.error or f"HTTP {res.status}")
                 return
             for obj in flatten_jsonld(doc.jsonld):
                 t = obj.get("@type")

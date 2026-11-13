@@ -103,6 +103,8 @@ class ContactDetails(Actor):
 
         def on_page(res, req, doc):
             if doc is None:
+                if res.error or (res.status and res.status >= 400):
+                    ctx.record_failure(req["url"], res.error or f"HTTP {res.status}")
                 return
             url = res.final_url or req["url"]
             sources.add(url)

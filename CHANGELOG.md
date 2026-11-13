@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A start URL that answers 4xx or 5xx is now a recorded failure (`stats.failed`,
+  `FAILED_REQUESTS`, a warning in the run log) in `website-content-crawler`,
+  `contact-details`, `product-catalog` and the careers-page path of `job-postings`. Before,
+  a wrong address ended as an empty run with status SUCCEEDED and nothing in the log.
+- `website-content-crawler` counts pages that return no text in `stats.emptyPages` and logs
+  a warning with a `render:true` hint; such pages are usually built by scripts.
+- New input `acceptLanguage` on `website-content-crawler`: sent as `Accept-Language` with
+  every request and passed to headless Chrome, so a site that picks its language from the
+  visitor's location returns the same version on every run.
 - Main content of listing pages: when a page holds several top-level `<article>` elements and
   none dominates, the Markdown keeps the list they share instead of the first item only (a
   200-page crawl of a book catalog: 1.0 price per listing page before, 10.89 after). One long

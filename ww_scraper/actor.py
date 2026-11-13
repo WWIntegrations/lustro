@@ -140,6 +140,11 @@ CONCURRENCY = {"type": "integer", "default": 1, "minimum": 1, "maximum": 16,
                               "by minIntervalSecs"}
 RENDER = {"type": "boolean", "default": False,
           "description": "Run each page's scripts in a local headless Chrome before reading it"}
+ACCEPT_LANGUAGE = {"type": "string", "default": "", "maxLength": 200,
+                   "pattern": "^[A-Za-z0-9,;=.* -]*$",
+                   "description": "Accept-Language sent with every request and to the browser, "
+                                  "e.g. 'en-US,en;q=0.9' to get one language version of the site "
+                                  "regardless of where the run happens"}
 REDACT = {"type": "boolean", "default": True,
           "description": "Mask e-mail addresses and phone numbers in output (GDPR default)"}
 
@@ -251,6 +256,10 @@ class RunContext:
         crawler = PoliteCrawler(self, min_interval=min_interval, **kwargs)
         crawler.default_concurrency = int(self.input.get("maxConcurrency", 1) or 1)
         crawler.render = bool(self.input.get("render", False))
+        lang = (self.input.get("acceptLanguage") or "").strip()
+        if lang:
+            crawler.accept_language = lang
+            crawler.session.headers["Accept-Language"] = lang
         return crawler
 
 

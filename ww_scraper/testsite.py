@@ -160,6 +160,7 @@ class _Handler(BaseHTTPRequestHandler):
         with site.lock:
             site.hits.append(path)
             site.agents.append(self.headers.get("User-Agent", ""))
+            site.langs.append(self.headers.get("Accept-Language", ""))
         b = site.base
         sec = {"X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
                "Set-Cookie": ["sid=SECRETVALUE; HttpOnly; SameSite=Lax", "pref=1"],
@@ -184,6 +185,8 @@ class _Handler(BaseHTTPRequestHandler):
             "/changing": lambda: self._changing(),
             "/cached": lambda: self._cached(),
             "/js": lambda: self._send(200, JS_PAGE),
+            "/shell": lambda: self._send(200, '<!doctype html><html><head><title>App</title>'
+                                              '</head><body><div id="root"></div></body></html>'),
             "/llms.txt": lambda: self._send(200, LLMS.format(base=b), "text/plain; charset=utf-8"),
             "/llms-full.txt": lambda: self._send(200, "# Full\n\nAll the docs in one file.\n", "text/plain"),
             "/redirect-1": lambda: self._send(301, headers={"Location": "/redirect-2"}),
@@ -249,6 +252,7 @@ class TestSite:
     def __init__(self, port: int = 0):
         self.hits: list = []
         self.agents: list = []
+        self.langs: list = []
         self.counter: dict = {}
         self.changing = "1"      # body version of /changing, or "gone" for a 404
         self.cached = "1"        # body version of /cached (its ETag is "v<version>")
@@ -272,6 +276,7 @@ class TestSite:
         with self.lock:
             self.hits.clear()
             self.agents.clear()
+            self.langs.clear()
             self.counter.clear()
             self.changing = "1"
             self.cached = "1"
