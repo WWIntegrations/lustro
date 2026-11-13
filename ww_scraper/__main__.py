@@ -10,7 +10,7 @@
     ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
     ww-scraper schedule --task <name> --cron @daily                 (prints only)
     ww-scraper task save <name> <actor> --input '<json>' | task list | task run <name>
-    ww-scraper mcp [--read-only]          MCP server on stdio for a local agent (opt-in)
+    ww-scraper mcp [--read-only] [--allow-host H]   MCP server on stdio for a local agent (opt-in)
     ww-scraper testsite [--port 8766]     local fixture website for demos/tests
     ww-scraper "<query>" [...]            v0.1 media search (unchanged)
 
@@ -25,6 +25,7 @@ import os
 import sys
 
 from . import search
+from .actor import loads_strict
 
 COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite", "init", "runs", "report",
             "purge", "task", "mcp"}
@@ -132,6 +133,8 @@ def _parser():
     mc.add_argument("--storage", default=None, help="storage dir (default ./storage or $WW_SCRAPER_STORAGE_DIR)")
     mc.add_argument("--lang", default=None, choices=["en", "pl"], help="language of validation errors")
     mc.add_argument("--read-only", action="store_true", help="expose runs and datasets only, no call_actor")
+    mc.add_argument("--allow-host", action="append", default=[], metavar="HOST",
+                    help="MCP runs may only fetch from this host and its subdomains (repeatable)")
 
     sc = sub.add_parser("schedule", help="print a cron line and a launchd plist (installs nothing)")
     sc.add_argument("actor", nargs="?", default=None)
@@ -179,15 +182,15 @@ def _parser():
 def _load_input(a):
     if a.input_file:
         with open(a.input_file, encoding="utf-8") as fh:
-            return json.load(fh)
+            return loads_strict(fh.read())
     if a.input is None:
         return None if a.resume else {}
-    return json.loads(a.input)
+    return loads_strict(a.input)
 
 
 def _json_object(text):
     try:
-        value = json.loads(text)
+        value = loads_strict(text)
     except ValueError as e:
         raise argparse.ArgumentTypeError(f"not valid JSON: {e}") from None
     if not isinstance(value, dict):
@@ -254,7 +257,7 @@ def _task(a) -> int:
             t = save_task(storage, a.name, a.actor, data, opts, lang=a.lang)
             print(f"saved task {t['name']} ({t['actId']})")
             return 0
-        override = json.loads(a.input) if a.input else None
+        override = loads_strict(a.input) if a.input else None
         rec = run_task(storage, a.name, override, opts, lang=a.lang, allow_loopback=a.allow_loopback,
                        log_stream=None if a.quiet else sys.stderr, webhooks=a.webhook or None)
     except (TaskError, OSError) as e:
@@ -403,7 +406,8 @@ def main(argv=None) -> int:
         channel = sys.stdout
         sys.stdout = sys.stderr              # anything printed by accident stays off the protocol channel
         try:
-            return MCPServer(Storage(a.storage), read_only=a.read_only, lang=a.lang, out=channel).serve(sys.stdin)
+            return MCPServer(Storage(a.storage), read_only=a.read_only, lang=a.lang, out=channel,
+                             allow_hosts=a.allow_host or None).serve(sys.stdin)
         except KeyboardInterrupt:
             return 0
         finally:
