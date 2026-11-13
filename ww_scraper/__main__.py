@@ -3,6 +3,7 @@
     ww-scraper run <actor> --input '<json>' [--timeout SECS] [--storage DIR] [--resume RUN_ID] [--webhook URL]
     ww-scraper actors                     list actors and their input fields
     ww-scraper export <dataset-id> [--format json|jsonl|csv|xlsx|xml|html] [--fields a,b] [--out FILE]
+    ww-scraper purge --older-than 30d [--dry-run]   delete old runs and their unnamed storages
     ww-scraper serve [--port 8765]        local API on 127.0.0.1
     ww-scraper schedule <actor> --cron '0 6 * * 1' --input '<json>'   (prints only)
     ww-scraper testsite [--port 8766]     local fixture website for demos/tests
@@ -20,7 +21,8 @@ import sys
 
 from . import search
 
-COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite", "init", "runs", "report"}
+COMMANDS = {"run", "actors", "export", "serve", "schedule", "testsite", "init", "runs", "report",
+            "purge"}
 
 
 def _legacy(argv) -> int:
@@ -63,6 +65,8 @@ def _parser():
     r.add_argument("--webhook", action="append", default=[], help="webhook URL (allowlisted)")
     r.add_argument("--timeout", type=float, default=None, metavar="SECS",
                    help="stop the run after SECS seconds; it ends TIMED-OUT with what it stored")
+    r.add_argument("--dataset", default=None, metavar="NAME",
+                   help="also append the items to this named dataset (kept across runs)")
     r.add_argument("--print-items", action="store_true", help="print dataset items as JSONL")
     r.add_argument("--quiet", action="store_true", help="do not stream the run log")
     common(r)
@@ -76,6 +80,12 @@ def _parser():
     rs = sub.add_parser("runs", help="list runs in the storage directory")
     rs.add_argument("--storage", default=None)
     rs.add_argument("--limit", type=int, default=20)
+
+    pg = sub.add_parser("purge", help="delete finished runs older than a duration, with their "
+                                      "unnamed storages (named storages are kept)")
+    pg.add_argument("--older-than", required=True, metavar="AGE", help="e.g. 30d, 12h, 2w")
+    pg.add_argument("--dry-run", action="store_true", help="list what would be deleted, delete nothing")
+    pg.add_argument("--storage", default=None)
 
     rp = sub.add_parser("report", help="write a self-contained HTML report of a run")
     rp.add_argument("run_id")
@@ -153,6 +163,22 @@ def main(argv=None) -> int:
                   f"{r.get('itemCount', 0):6d} items  {r.get('startedAt') or '':24s} {msg}".rstrip())
         if not runs:
             print("no runs yet")
+        return 0
+
+    if a.cmd == "purge":
+        from .storage import parse_duration
+        try:
+            secs = parse_duration(a.older_than)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        gone = Storage(a.storage).purge(secs, dry_run=a.dry_run)
+        verb = "would delete" if a.dry_run else "deleted"
+        for g in gone:
+            print(f"{verb} {g['runId']:26s} {g['actId'] or '':24s} {g['status']:10s} "
+                  f"{g['finishedAt'] or '':24s} {g['bytes']:>10,d} bytes")
+        total = sum(g["bytes"] for g in gone)
+        print(f"{verb} {len(gone)} run(s), {total:,d} bytes; named storages kept")
         return 0
 
     if a.cmd == "report":
@@ -248,7 +274,8 @@ def main(argv=None) -> int:
         rec = run_actor(a.actor, data, storage, run_id=a.resume, lang=a.lang,
                         allow_loopback=a.allow_loopback,
                         log_stream=None if a.quiet else sys.stderr,
-                        webhooks=a.webhook or None, timeout_secs=a.timeout)
+                        webhooks=a.webhook or None, timeout_secs=a.timeout,
+                        options={"datasetName": a.dataset} if a.dataset else None)
     except InputError as e:
         for err in e.errors:
             print(f"input: {err}", file=sys.stderr)

@@ -8,6 +8,9 @@
     storage/runs/<id>.json, <id>.log           run records and logs
 
 IDs and keys are validated, so nothing outside the storage root can be addressed.
+
+Unnamed storages belong to one run and share its id. Named storages (a name that is not
+shaped like a run id) are shared by every run that opens them and are never purged.
 """
 from __future__ import annotations
 
@@ -28,6 +31,9 @@ from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _KEY_RE = re.compile(r"^[A-Za-z0-9!_'()-][A-Za-z0-9!_.'()-]{0,255}$")
+_RUN_ID_RE = re.compile(r"^\d{14}-[0-9a-f]{8}$")
+_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)([smhdw])$")
+_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 7 * 86400}
 
 
 class StorageError(ValueError):
@@ -50,6 +56,43 @@ def valid_id(value) -> bool:
 
 def valid_key(value) -> bool:
     return isinstance(value, str) and bool(_KEY_RE.match(value)) and ".." not in value
+
+
+def is_run_id(value) -> bool:
+    """True for ids made by new_id(): those storages belong to one run."""
+    return isinstance(value, str) and bool(_RUN_ID_RE.match(value))
+
+
+def check_name(name) -> str:
+    """A storage name: a valid id that cannot be mistaken for a run id."""
+    if not valid_id(name) or is_run_id(name):
+        raise StorageError(f"invalid storage name: {name!r} (letters, digits, '-' and '_', "
+                           "up to 64, not shaped like a run id)")
+    return name
+
+
+def parse_duration(text) -> float:
+    """'30d', '12h', '90m', '45s', '2w' -> seconds."""
+    m = _DURATION_RE.match(str(text).strip().lower())
+    if not m:
+        raise ValueError(f"duration {text!r}: use a number and s, m, h, d or w, e.g. 30d")
+    return float(m.group(1)) * _UNITS[m.group(2)]
+
+
+def _parse_time(value):
+    try:
+        return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    if path.is_dir():
+        return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+    return 0
 
 
 def _check_id(value) -> str:
@@ -558,4 +601,52 @@ class Storage:
                 out.append(json.loads(p.read_text(encoding="utf-8")))
             except ValueError:
                 continue
+        return out
+
+    # -- named storages ---------------------------------------------------------------
+    def named_dataset(self, name: str) -> Dataset:
+        return Dataset(self.root, check_name(name))
+
+    def named_kv(self, name: str) -> KeyValueStore:
+        return KeyValueStore(self.root, check_name(name))
+
+    def named_queue(self, name: str) -> RequestQueue:
+        return RequestQueue(self.root, check_name(name))
+
+    # -- retention --------------------------------------------------------------------
+    def run_paths(self, run_id: str) -> list:
+        """Everything that belongs to one run: record, log, report and its unnamed storages."""
+        _check_id(run_id)
+        # storages first, the record last: a purge cut short leaves a record to retry with
+        return [self.root / "datasets" / run_id, self.root / "key_value_stores" / run_id,
+                self.root / "request_queues" / run_id, self.root / "reports" / f"{run_id}.html",
+                self.log_path(run_id), self.run_path(run_id)]
+
+    def purge(self, older_than_secs: float, dry_run: bool = False, now=None) -> list:
+        """Delete finished runs older than older_than_secs together with their unnamed
+        storages. Named storages and runs still going are never touched. Returns one
+        entry per run: {runId, actId, status, finishedAt, bytes, paths}."""
+        from .actor import TERMINAL
+        now = now or datetime.datetime.now(datetime.timezone.utc)
+        cutoff = now - datetime.timedelta(seconds=float(older_than_secs))
+        out = []
+        for rec in self.list_runs():
+            rid = rec.get("id")
+            if not is_run_id(rid) or rec.get("status") not in TERMINAL:
+                continue
+            when = _parse_time(rec.get("finishedAt")) or _parse_time(rec.get("createdAt"))
+            if when is None or when > cutoff:
+                continue
+            paths = [p for p in self.run_paths(rid) if p.exists()]
+            entry = {"runId": rid, "actId": rec.get("actId"), "status": rec.get("status"),
+                     "finishedAt": rec.get("finishedAt"), "bytes": sum(_size(p) for p in paths),
+                     "paths": [str(p) for p in paths]}
+            if not dry_run:
+                import shutil
+                for p in paths:
+                    if p.is_dir():
+                        shutil.rmtree(p)
+                    else:
+                        p.unlink()
+            out.append(entry)
         return out
