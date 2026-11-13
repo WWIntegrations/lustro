@@ -39,7 +39,7 @@ Source: [`ww_scraper/actor.py`](../ww_scraper/actor.py), [`tests/test_actor_core
 
 ## What a run writes
 
-Each run has a dataset, a key-value store and a request queue that share the run id. The queue is durable, so an interrupted run resumes where it stopped. A storage opened by name (`ctx.dataset("leads")`) is shared by every run that uses the name. `ww-scraper purge --older-than` deletes finished runs and their unnamed storages only; named storages are never purged. An actor may declare a schema for its items: every push is checked and one invalid item rejects the push. An export goes through one view (clean, unwind, omit, flatten, fields) before it is written as JSON, JSONL, CSV, XLSX, XML, HTML or RSS.
+Each run has a dataset, a key-value store and a request queue that share the run id. The queue is durable, so an interrupted run resumes where it stopped. A storage opened by name (`ctx.dataset("leads")`) is shared by every run that uses the name. `ww-scraper purge --older-than` deletes finished runs and their unnamed storages only; named storages are never purged. An actor may declare a schema for its items: every push is checked and one invalid item rejects the push. An export goes through one view (clean, unwind, omit, flatten, fields) before it is written as JSON, JSONL, CSV, XLSX, XML, HTML, RSS or chunks (Markdown split by headings for RAG, the same records `ww_scraper.loaders` turns into documents).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="system-map/storage-layout-dark.svg">
