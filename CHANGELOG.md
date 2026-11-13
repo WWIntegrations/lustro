@@ -72,6 +72,13 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- Console screens: Tasks (saved tasks, run with one click), Storage (named datasets and
+  key-value stores, optionally every run storage, with newest items, keys and downloads)
+  and History (runs per day by final status over 30 days from `/v2/stats/runs`, with a
+  legend, a table view, success rate, median duration and the latest 50 runs). The chart
+  is built with DOM calls under the same strict Content-Security-Policy.
+- Run times in any ISO 8601 form are now read by `purge` and `/v2/stats/runs`; before, a
+  record with a time not written by ww-scraper itself was skipped.
 - RAG output: `--format chunks` on `export` (`?format=chunks&chunkSize=&chunkOverlap=` on the
   API) writes one JSON line per Markdown chunk with a stable `id`, `url`, `title`,
   `headingPath`, `chunkIndex`, `chunkCount` and `text`. Chunks follow headings, then

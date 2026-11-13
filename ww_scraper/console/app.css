@@ -1,4 +1,4 @@
-:root{--bg:#fdfff5;--ink:#050507;--muted:#55555a;--line:#d9dbcf;--card:#ffffff;--soft:#f1f3e8;
+:root{--s-good:#0ca30c;--s-warning:#fab219;--s-serious:#ec835a;--s-critical:#d03b3b;--s-other:#a8a8b0;--bg:#fdfff5;--ink:#050507;--muted:#55555a;--line:#d9dbcf;--card:#ffffff;--soft:#f1f3e8;
 --accent:#322db8;--accent-ink:#ffffff;--ok:#1b6e3c;--bad:#a3261d;--run:#8a5a00}
 @media (prefers-color-scheme:dark){:root{--bg:#050507;--ink:#fdfff5;--muted:#a8a8b0;--line:#2a2a33;
 --card:#101018;--soft:#17171f;--accent:#8c8cf0;--accent-ink:#050507;--ok:#6fd39b;--bad:#ff8b80;--run:#f2c46b}}
@@ -69,3 +69,20 @@ pre.log{background:var(--card);border:1px solid var(--line);border-radius:8px;pa
 .status-message{margin:0 0 12px;padding:6px 10px;border-left:3px solid currentColor}
 fieldset.section{border:1px solid currentColor;border-radius:8px;padding:8px 12px;margin:0 0 16px}
 fieldset.section legend{font-weight:700;padding:0 4px}
+.legend{list-style:none;display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;padding:0;font-size:13px;color:var(--muted)}
+.legend li{display:flex;align-items:center;gap:6px}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:2px}
+.chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:10px}
+svg.chart{width:100%;height:auto;display:block}
+svg.chart .grid{stroke:var(--line);stroke-width:1}
+svg.chart .axis{stroke:var(--muted);stroke-width:1}
+svg.chart .tick{fill:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+svg.chart .hit{fill:transparent}
+svg.chart .day:hover .hit,svg.chart .day:focus .hit{fill:var(--soft)}
+svg.chart .day:focus{outline:none}
+.s-SUCCEEDED{fill:var(--s-good);background:var(--s-good)}
+.s-FAILED{fill:var(--s-critical);background:var(--s-critical)}
+.s-TIMED-OUT{fill:var(--s-serious);background:var(--s-serious)}
+.s-ABORTED{fill:var(--s-warning);background:var(--s-warning)}
+.s-OTHER{fill:var(--s-other);background:var(--s-other)}
+details summary{cursor:pointer;color:var(--muted);margin:4px 0 8px}

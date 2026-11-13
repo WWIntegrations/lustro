@@ -166,3 +166,11 @@ def test_fields_selects_and_orders_columns_in_every_format(storage):
     assert json.loads(ds.export("json", fields=["c", "a"])[0]) == [{"c": 3, "a": 1}, {"c": 4}]
     assert ds.export("csv", fields=["c", "a"])[0].decode().split("\r\n")[:3] == ["c,a", "3,1", "4,"]
     assert list(_xlsx_rows(ds.export("xlsx", fields=["c", "a"])[0])[0].values()) == [("s", "c"), ("s", "a")]
+
+
+def test_parse_time_accepts_record_and_iso_times():
+    from ww_scraper.storage import _parse_time
+    assert _parse_time("2026-11-13T06:37:28.12Z").microsecond == 120000
+    assert _parse_time("2026-11-13T06:37:28.123456+00:00").tzinfo is not None
+    assert _parse_time("2026-11-13T06:37:28").tzinfo is not None
+    assert _parse_time("nope") is None and _parse_time(None) is None

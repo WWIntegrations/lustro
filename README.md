@@ -284,7 +284,10 @@ leave the machine through DNS.
 `ww-scraper serve` also prints a console link (`http://127.0.0.1:8765/console#token=...`).
 In the browser you can start any actor from a form built from its input schema, watch a
 run's counters and log while it runs, abort it, page through its items and download them
-in any export format.
+in any export format. **Tasks** lists saved tasks and starts one with a click; **Storage**
+browses named datasets and key-value stores (run storages behind a toggle) with their
+newest items, keys and downloads; **History** charts the runs started per day by final
+status over 30 days, with a table view, success rate, median duration and the latest runs.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/console-run-dark.png">
