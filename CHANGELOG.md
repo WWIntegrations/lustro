@@ -72,6 +72,11 @@ Defects found while measuring 150 local business sites; seven of them changed re
   article next to short teasers still wins on its own.
 - docs/comparison.md: the same 200-page crawl measured on a hosted scraping platform at two
   memory sizes and on ww-scraper (time, pages, memory, cost, content on shared URLs).
+- `"autoscaleConcurrency": true` on every actor with `maxConcurrency`: workers start at two
+  and move between one and `maxConcurrency` with the machine's 1-minute load per CPU
+  (down above 0.9, up below 0.6) and, on Linux, available memory (down under 10%). Off
+  by default; per-host spacing and Crawl-delay are unchanged. The current value is the
+  `concurrency` counter.
 - Browser interaction: `waitForSelector` and `browserActions` (`click`, `scroll`, `wait`,
   `waitForSelector`; at most 20, nothing else) on every actor that renders. With any of
   them, or with screenshots or PDFs, Chrome is driven over `--remote-debugging-pipe`

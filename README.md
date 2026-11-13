@@ -83,7 +83,7 @@ ww-scraper serve                                      # local HTTP API, token re
 | Pages that build their content with JavaScript | `"render": true` re-reads each page through a local headless Chrome; the browser's connections go through a proxy that refuses private addresses. `"render": "auto"` renders only pages whose HTML looks script-built and stops for a host where rendering adds nothing |
 | A page that needs a click or a wait first | `"waitForSelector": ".results"` and `"browserActions": [{"click": "#more"}, {"waitForSelector": ".item"}, {"scroll": "bottom"}, {"wait": 500}]`: clicks, scrolls and waits only, no typing |
 | Screenshots or PDFs of pages | the `screenshot` actor, or `"screenshot": "viewport"` / `"fullPage"` and `"pdf": true` on `website-content-crawler`: files go to the run's key-value store, with thumbnails in the console and the report |
-| Faster crawls over several hosts | `"maxConcurrency": N` (1 to 16); one host is still never asked more often than `minIntervalSecs` |
+| Faster crawls over several hosts | `"maxConcurrency": N` (1 to 16); one host is still never asked more often than `minIntervalSecs`. With `"autoscaleConcurrency": true` the number of workers follows this machine's load (and free memory on Linux), between 1 and N |
 | A scraper for one specific site | `ww-scraper init <name>` writes a working actor; edit `run(ctx)` |
 | A result to hand to someone | `ww-scraper report <run-id>`, or `ww-scraper export <id> --format xlsx --out items.xlsx` |
 | Know why a URL was skipped | `robots-audit` shows the group, the rule and the pattern that decided |

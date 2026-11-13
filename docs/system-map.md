@@ -61,7 +61,7 @@ Source: [`ww_scraper/render.py`](../ww_scraper/render.py), [`ww_scraper/proxy.py
 
 ## Concurrent crawling with per-host spacing
 
-Several pages can be in flight, but the rate limiter reserves one slot per host, so a single site is never asked more often than the interval. Results are handed to the actor in one thread.
+Several pages can be in flight, but the rate limiter reserves one slot per host, so a single site is never asked more often than the interval. Results are handed to the actor in one thread. With `autoscaleConcurrency` the number of workers starts at two and moves between one and `maxConcurrency` every two seconds, following the load average per CPU and, on Linux, the share of free memory.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="system-map/concurrency-dark.svg">

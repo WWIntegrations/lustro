@@ -5,8 +5,8 @@ per-host pacing apply to every page as for any other actor.
 """
 from __future__ import annotations
 
-from ..actor import (BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, PDF, REDACT, SCREENSHOT_FORMAT, START_URLS,
-                     WAIT_FOR, Actor)
+from ..actor import (AUTOSCALE, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, PDF, REDACT,
+                     SCREENSHOT_FORMAT, START_URLS, WAIT_FOR, Actor)
 from .website_content_crawler import _artifacts
 
 
@@ -31,6 +31,7 @@ class Screenshot(Actor):
             "browserActions": BROWSER_ACTIONS,
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
+            "autoscaleConcurrency": AUTOSCALE,
             "redactPii": REDACT,
         },
     }

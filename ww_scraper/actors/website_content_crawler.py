@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import datetime
 
-from ..actor import (ACCEPT_LANGUAGE, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, PDF, REDACT,
-                     RENDER, SCREENSHOT, SCREENSHOT_FORMAT, START_URLS, WAIT_FOR, Actor)
+from ..actor import (ACCEPT_LANGUAGE, AUTOSCALE, BROWSER_ACTIONS, CONCURRENCY, MIN_INTERVAL, PDF,
+                     REDACT, RENDER, SCREENSHOT, SCREENSHOT_FORMAT, START_URLS, WAIT_FOR, Actor)
 from ..storage import normalize_url
 
 
@@ -40,6 +40,7 @@ class WebsiteContentCrawler(Actor):
                                 "maximum": 50_000_000},
             "minIntervalSecs": MIN_INTERVAL,
             "maxConcurrency": CONCURRENCY,
+            "autoscaleConcurrency": AUTOSCALE,
             "render": RENDER,
             "acceptLanguage": ACCEPT_LANGUAGE,
             "waitForSelector": WAIT_FOR,
