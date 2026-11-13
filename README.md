@@ -88,6 +88,7 @@ ww-scraper serve                                      # local HTTP API, token re
 | Watch a site for changes | `change-monitor` with a `monitorName`, on a schedule printed by `ww-scraper schedule` |
 | One list built from many runs | `--dataset weekly-jobs` on each run appends its items to the named dataset `weekly-jobs` |
 | Keep the disk from filling | `ww-scraper purge --older-than 30d` deletes old runs and their unnamed storages; named storages stay; `--dry-run` first |
+| A run that must not cost more than planned | `--max-items N`, `--max-requests N`, `--max-bytes N`: the run stops cleanly and SUCCEEDS with what it has |
 | A run that must not hang | `--timeout SECS` (or `"timeoutSecs"` in the input): the run ends TIMED-OUT and keeps what it stored |
 
 How this compares with a hosted platform, including what it does not do:

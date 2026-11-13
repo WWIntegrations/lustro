@@ -70,6 +70,9 @@ def _parser():
                    help="stop the run after SECS seconds; it ends TIMED-OUT with what it stored")
     r.add_argument("--dataset", default=None, metavar="NAME",
                    help="also append the items to this named dataset (kept across runs)")
+    for flag, what in (("--max-items", "items stored"), ("--max-requests", "HTTP requests"),
+                       ("--max-bytes", "bytes downloaded")):
+        r.add_argument(flag, type=int, default=None, metavar="N", help=f"stop cleanly after N {what}")
     r.add_argument("--print-items", action="store_true", help="print dataset items as JSONL")
     r.add_argument("--quiet", action="store_true", help="do not stream the run log")
     common(r)
@@ -162,6 +165,12 @@ def _load_input(a):
     if a.input is None:
         return None if a.resume else {}
     return json.loads(a.input)
+
+
+def _run_options(a):
+    opts = {"datasetName": a.dataset, "maxItems": a.max_items, "maxRequests": a.max_requests,
+            "maxBytes": a.max_bytes}
+    return {k: v for k, v in opts.items() if v is not None} or None
 
 
 def _print_run(storage, rec, print_items):
@@ -399,7 +408,7 @@ def main(argv=None) -> int:
                         allow_loopback=a.allow_loopback,
                         log_stream=None if a.quiet else sys.stderr,
                         webhooks=a.webhook or None, timeout_secs=a.timeout,
-                        options={"datasetName": a.dataset} if a.dataset else None)
+                        options=_run_options(a))
     except InputError as e:
         for err in e.errors:
             print(f"input: {err}", file=sys.stderr)

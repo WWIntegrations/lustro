@@ -221,12 +221,20 @@ RUN_OPTIONS_SCHEMA = {
         "timeoutSecs": {"type": "number", "minimum": 0,
                         "description": "Stop the run after this many seconds (0 = no limit); "
                                        "it ends TIMED-OUT and keeps what it stored"},
+        "maxItems": {"type": "integer", "minimum": 1,
+                     "description": "Stop cleanly once this many items are stored (the run "
+                                    "SUCCEEDS with exactly that many)"},
+        "maxRequests": {"type": "integer", "minimum": 1,
+                        "description": "Stop cleanly after this many HTTP requests"},
+        "maxBytes": {"type": "integer", "minimum": 1,
+                     "description": "Stop cleanly after downloading this many bytes"},
         "datasetName": {"type": "string", "maxLength": 64,
                         "description": "Also append this run's items to the named dataset, "
                                        "which is kept across runs and never purged"},
     },
 }
 STATUS_MESSAGE_MAX = 500
+BUDGETS = {"maxItems": "items", "maxRequests": "requests", "maxBytes": "bytes"}
 MAX_CALL_DEPTH = 4               # ctx.call_actor() nesting: a run calling itself stops here
 
 # run id -> RunContext of every run executing in this process (for abort requests)
@@ -328,6 +336,9 @@ class RunContext:
         self.record = record if record is not None else {"id": run_id}
         self.timed_out = False
         self.deadline = None             # time.monotonic() value, or None
+        opts = self.record.get("options") or {}
+        self.budgets = {k: opts[k] for k in BUDGETS if opts.get(k)}
+        self.budget_hit = None           # "maxItems=100" once a budget stopped the run
         self._rec_lock = threading.Lock()
         self.failures: list = []
         self.stats = {"requests": 0, "retries": 0, "robotsBlocked": 0, "ssrfBlocked": 0,
@@ -336,7 +347,14 @@ class RunContext:
 
     @property
     def aborted(self) -> bool:
-        return self.abort_event.is_set() or (self.parent is not None and self.parent.aborted)
+        if self.abort_event.is_set() or (self.parent is not None and self.parent.aborted):
+            return True
+        for key, limit in self.budgets.items():
+            if self.stats.get(BUDGETS[key], 0) >= limit:
+                self.budget_hit = f"{key}={limit}"
+                self.abort_event.set()
+                return True
+        return False
 
     def check_abort(self):
         if self.aborted:
@@ -387,7 +405,7 @@ class RunContext:
         with self._rec_lock:
             rec = self.record
             if rec.get("status") in ("RUNNING", "ABORTING", "TIMING-OUT"):
-                if self.abort_event.is_set():
+                if self.abort_event.is_set() and not self.budget_hit:
                     rec["status"] = "TIMING-OUT" if self.timed_out else "ABORTING"
                 rec["itemCount"] = self.dataset.count()
                 rec["stats"] = dict(self.stats)
@@ -409,6 +427,8 @@ class RunContext:
     def push_data(self, items) -> int:
         if isinstance(items, dict):
             items = [items]
+        if "maxItems" in self.budgets:
+            items = list(items)[:max(0, self.budgets["maxItems"] - self.stats["items"])]
         if self.redact:
             items = [redact_obj(i) for i in items]
         n = self.dataset.push(items)
@@ -547,6 +567,10 @@ def execute_run(rec, storage: Storage = None, *, allow_loopback=False, log_strea
             timer.cancel()
         with _LIVE_LOCK:
             _LIVE.pop(rec["id"], None)
+    if status == "ABORTED" and ctx.budget_hit and not ctx.timed_out_chain \
+            and not (parent is not None and parent.aborted):
+        status = "SUCCEEDED"         # a budget is a planned, clean stop
+        rec["statusMessage"] = f"stopped at {ctx.budget_hit}"
     if status == "ABORTED":
         last = rec.get("statusMessage") or ""
         if ctx.timed_out_chain:
