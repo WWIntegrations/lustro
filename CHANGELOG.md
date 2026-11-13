@@ -101,6 +101,17 @@ Defects found while measuring 150 local business sites; seven of them changed re
   first), `clean` (no `#hidden` keys, no empty items); `fields` now takes dotted paths.
 - `--format rss` (API `format=rss`): an RSS 2.0 feed from items with a title, name or url
   field, with `pubDate` from the first date-like field; only http(s) values become links.
+- Actor chaining: `ctx.call_actor(name, input)` runs another actor in the same process and
+  returns its final record. The called run has its own run id and unnamed storages,
+  `parentRunId` pointing back (the caller lists `childRunIds`), at most the caller's
+  remaining time, and stops when the caller is aborted; nesting stops at four levels.
+- `lead-list` actor: `places`, then `contact-details` on every place with a website, merged
+  into one record per business (name, category, address, website, e-mails, phones, social
+  profiles, source with the OSM link, ODbL attribution and pages read). The PII defaults of
+  both actors are kept.
+- `pipeline` actor: steps run one after another, a field of one step's items feeding the
+  start URLs of the next (`sitemap` then `seo-audit`); every step's input is validated before
+  the first one starts.
 
 ## 0.9.0 (2026-11-12)
 

@@ -8,6 +8,7 @@ import pytest
 import requests
 
 from ww_scraper import webhooks
+from ww_scraper.actors import ACTORS
 from ww_scraper.api import ScraperAPI
 from ww_scraper.schedule import cron_line, launchd_plist, render
 
@@ -35,7 +36,7 @@ def test_api_auth_and_host_guard(api):
     r = requests.get(api.url + "/v2/acts", headers=dict(_h(), Host="evil.example"), timeout=5)
     assert r.status_code == 403                       # DNS-rebinding guard
     r = requests.get(api.url + "/v2/acts", headers=_h(), timeout=5)
-    assert r.status_code == 200 and r.json()["data"]["total"] == 15
+    assert r.status_code == 200 and r.json()["data"]["total"] == len(ACTORS)
 
 
 def test_api_run_flow(api, site):

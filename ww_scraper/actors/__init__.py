@@ -6,9 +6,11 @@ from .change_monitor import ChangeMonitor
 from .contact_details import ContactDetails
 from .feed_reader import FeedReader
 from .job_postings import JobPostings
+from .lead_list import LeadList
 from .link_checker import LinkChecker
 from .llms_txt import LlmsTxt
 from .media_collector import MediaCollector
+from .pipeline import Pipeline
 from .places import Places
 from .product_catalog import ProductCatalog
 from .robots_audit import RobotsAudit
@@ -21,7 +23,8 @@ from .website_content_crawler import WebsiteContentCrawler
 ACTORS = {a.name: a for a in (
     WebsiteContentCrawler(), Sitemap(), SeoAudit(), SecurityHeaders(), LlmsTxt(),
     LinkChecker(), MediaCollector(), RobotsAudit(), StructuredData(), ChangeMonitor(),
-    FeedReader(), JobPostings(), Places(), ProductCatalog(), ContactDetails(),
+    FeedReader(), JobPostings(), Places(), ProductCatalog(), ContactDetails(), LeadList(),
+    Pipeline(),
 )}
 
 

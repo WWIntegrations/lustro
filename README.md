@@ -10,7 +10,7 @@ Use it when you need job postings from company job boards, businesses from OpenS
 products and prices from shops, contact details, a crawl for RAG, or an SEO and security-header
 audit, on your own machine, without proxies, evasion or anything a site has not allowed.
 
-<p align="center"><img src="docs/console-demo.gif" width="100%" alt="The local console: the list of fifteen actors, the job postings input form generated from its schema, the runs list and a finished crawl with counters, items and export buttons"></p>
+<p align="center"><img src="docs/console-demo.gif" width="100%" alt="The local console: the list of seventeen actors, the job postings input form generated from its schema, the runs list and a finished crawl with counters, items and export buttons"></p>
 
 Each release on GitHub carries a wheel and a source archive
 ([v0.9.0](https://github.com/WWIntegrations/ww-scraper/releases/tag/v0.9.0)); download the
@@ -18,7 +18,7 @@ wheel, check it, then install it with pip.
 
 ww-scraper is a compliant, open-source local mirror of the useful primitives of commercial scraping
 platforms (datasets, key-value stores, request queues, actors, runs and a
-small HTTP API), plus fifteen ready actors, including job postings, places, product catalogs, contact details and the original licensed media collector.
+small HTTP API), plus seventeen ready actors, including job postings, places, product catalogs, contact details and the original licensed media collector.
 Everything runs on your machine, in the open, strictly inside what each site permits:
 robots.txt always, a per-host rate limit, an honest User-Agent with a contact, and
 personal data redacted by default.
@@ -65,7 +65,7 @@ copyright, ToS / robots.txt, server load, and no-evasion - maps to ww-scraper's 
 ## What you can do with it
 
 ```bash
-ww-scraper actors                                     # the fifteen built-in actors
+ww-scraper actors                                     # the seventeen built-in actors
 ww-scraper run seo-audit --input '{"startUrls": ["https://example.com/"]}'
 ww-scraper run website-content-crawler --input '{"startUrls": ["https://example.com/"], "render": true, "maxConcurrency": 4}'
 ww-scraper runs                                       # what ran, with status, item counts and status message
@@ -150,6 +150,8 @@ metadata with the standard library only (`html.parser`).
 | `places`                  | businesses by category (32 ready ones) or raw OSM tags, in a city, a radius or a box, from OpenStreetMap via public Overpass instances that allow API use (with fallback): address, coordinates, website, phone, opening hours, with the ODbL attribution in every record |
 | `product-catalog`         | products from any shop's schema.org data (Product, ProductGroup variants, AggregateOffer, Open Graph fallback): price, currency, availability, GTIN, SKU, brand, rating; duplicates removed by GTIN or SKU; records a merchant feed would reject are flagged |
 | `contact-details`         | the e-mails, phones, social profiles, address and VAT id a company publishes on its home, contact, about and imprint pages; role addresses (info@, biuro@) kept, personal ones masked unless `redactPii` is off |
+| `lead-list`               | `places` then `contact-details` on every place with a website, joined into one record per business: name, category, address, website, role e-mails and phones, social profiles, source (OSM link, ODbL attribution, pages read); the masking of both actors is kept |
+| `pipeline`                | actors run one after another, a field of one step's items (e.g. `url`) becoming the start URLs of the next, e.g. `sitemap` then `seo-audit` |
 
 ```bash
 ww-scraper actors                                   # list actors and input fields
@@ -185,6 +187,18 @@ ww-scraper run job-postings --input '{"boards": ["greenhouse:<board>", "lever:<c
 ww-scraper run places --input '{"category": "dentist", "city": "Gdańsk"}'
 ww-scraper run product-catalog --input '{"startUrls": ["https://shop.example/"], "maxPages": 500}'
 ww-scraper run contact-details --input '{"startUrls": ["https://company.example/"]}'
+ww-scraper run lead-list --input '{"category": "dentist", "city": "Gdańsk", "maxResults": 100}'
+```
+
+`lead-list` is built from the other two with `ctx.call_actor()`: an actor can run another
+actor in the same process and get its run record back. The called run has its own storages,
+never outlives the caller's timeout and stops when the caller is aborted. The `pipeline`
+actor does the same from JSON:
+
+```bash
+ww-scraper run pipeline --input '{"steps": [
+  {"actor": "sitemap", "input": {"startUrls": ["https://example.com/"]}},
+  {"actor": "seo-audit", "input": {"maxPages": 50}, "urlsFrom": "url"}]}'
 ```
 
 Try it offline against the bundled test site (the `--allow-loopback` switch is for
