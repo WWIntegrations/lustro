@@ -158,8 +158,10 @@ class Sitemap(Actor):
         "required": ["startUrls"],
         "properties": {
             "startUrls": START_URLS,
-            "maxSitemaps": {"type": "integer", "default": 50, "minimum": 1, "maximum": 1000},
-            "maxUrls": {"type": "integer", "default": 10000, "minimum": 1, "maximum": 1_000_000},
+            "maxSitemaps": {"type": "integer", "default": 50, "minimum": 1, "maximum": 1000,
+                            "description": "Sitemap files read per origin"},
+            "maxUrls": {"type": "integer", "default": 10000, "minimum": 1, "maximum": 1_000_000,
+                        "description": "URLs listed per origin"},
             "minIntervalSecs": MIN_INTERVAL,
             "redactPii": REDACT,
         },
@@ -169,9 +171,11 @@ class Sitemap(Actor):
         inp = ctx.input
         crawler = ctx.crawler(max_bytes=MAX_UNCOMPRESSED)
         summary = {}
-        total = 0
-        fetched = 0
+        # both limits apply per origin: one site with 300,000 URLs must not leave the
+        # sites after it looking as if they had no sitemap
         for origin in dict.fromkeys(origin_of(u) for u in inp["startUrls"]):
+            total = 0
+            fetched = 0
             entry = crawler.robots.get(origin + "/")
             todo = collections.deque(entry.sitemaps or [])
             todo.append(origin + "/sitemap.xml")
@@ -208,5 +212,10 @@ class Sitemap(Actor):
                     total += 1
                 count += len(batch)
                 ctx.push_data(batch)
-            summary[origin] = {"robotsSitemaps": entry.sitemaps, "sitemaps": found, "urls": count}
+            truncated = total >= inp["maxUrls"] or (bool(todo) and fetched >= inp["maxSitemaps"])
+            if truncated:
+                ctx.log.warning(f"{origin}: stopped at maxSitemaps={inp['maxSitemaps']} / "
+                                f"maxUrls={inp['maxUrls']}; the sitemap list is incomplete")
+            summary[origin] = {"robotsSitemaps": entry.sitemaps, "sitemaps": found, "urls": count,
+                               "truncated": truncated}
         ctx.set_value("OUTPUT", summary)

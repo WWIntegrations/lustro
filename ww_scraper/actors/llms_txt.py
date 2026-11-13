@@ -27,6 +27,7 @@ def validate_llms_txt(text: str) -> dict:
         issues.append({"severity": sev, "message": msg})
 
     out = {"title": "", "summary": "", "sections": [], "linkCount": 0, "issues": issues}
+    text = text.lstrip("\ufeff")          # Yoast and All in One SEO write a UTF-8 BOM
     if text.lstrip()[:1] == "<":
         add("error", "content looks like HTML, not Markdown (soft 404 / SPA fallback?)")
         out["valid"] = False
@@ -132,10 +133,15 @@ class LlmsTxt(Actor):
             item = {"origin": origin}
             res = crawler.fetch(origin + "/llms.txt", accept_types=None)
             html_soft404 = res.content_type.startswith("text/html")
+            empty = res.ok and not res.text().strip("\ufeff \t\r\n")
             item["llmsTxt"] = {"url": origin + "/llms.txt", "status": res.status,
                                "contentType": res.content_type,
-                               "present": res.ok and not html_soft404}
-            if res.blocked:
+                               # an empty 200 answer is not a published llms.txt
+                               "present": res.ok and not html_soft404 and not empty,
+                               "empty": empty}
+            if res.blocked or (res.error and not res.status):
+                # not checked (robots.txt, SSRF guard, network): unknown, not "absent"
+                item["llmsTxt"]["present"] = None
                 item["llmsTxt"]["error"] = res.error
             if res.ok:
                 item["llmsTxt"].update(validate_llms_txt(res.text()))

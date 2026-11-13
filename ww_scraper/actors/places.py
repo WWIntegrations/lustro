@@ -9,6 +9,7 @@ the main overpass-api.de instance disallows /api/ to crawlers, so ww-scraper nev
 from __future__ import annotations
 
 import re
+import time
 from urllib.parse import quote
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
@@ -17,8 +18,11 @@ from ._api import get_json
 ATTRIBUTION = "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)"
 # public instances whose robots.txt allows API use (checked 2026-11-12); the main instance
 # disallows /api/. Tried in order when one does not answer.
-ENDPOINTS = ("https://overpass.kumi.systems/api/interpreter",
-             "https://overpass.private.coffee/api/interpreter")
+# One public instance. overpass.private.coffee used to be listed as a fallback, but it is the
+# same machine (overpass.kumi.systems is a CNAME to it), so it never helped when the first was
+# down. overpass-api.de disallows the API in robots.txt. Another instance: the endpoint input.
+ENDPOINTS = ("https://overpass.kumi.systems/api/interpreter",)
+BUSY_PAUSE = 30              # seconds to wait once when a server says it is busy (429/504)
 SERVER_TIMEOUT = 60          # seconds the query lets the Overpass server work
 CATEGORIES = {
     "restaurant": ["amenity=restaurant"], "cafe": ["amenity=cafe"], "bar": ["amenity=bar", "amenity=pub"],
@@ -42,6 +46,9 @@ _VALUE = re.compile(r"[^\"\\\n\r]{1,100}")
 def _q(value: str) -> str:
     """Overpass QL string literal (values are validated first; this only escapes)."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+_WEBSITE = '[~"^(website|contact:website)$"~"."]'
 
 
 def build_query(tags: list, inp: dict, limit: int) -> str:
@@ -70,7 +77,10 @@ def build_query(tags: list, inp: dict, limit: int) -> str:
         scope = "(area.a)"
     else:
         raise ValueError("give an area: city, lat+lon (with radiusMeters) or bbox")
-    body = "".join(f"  nwr{f}{scope};\n" for f in filters)
+    # the website filter runs on the server: filtering after "out ... qt N" kept only the
+    # places with a website among the first N of one map tile, not N places with a website
+    web = _WEBSITE if inp.get("onlyWithWebsite") else ""
+    body = "".join(f"  nwr{f}{web}{scope};\n" for f in filters)
     return f"[out:json][timeout:{SERVER_TIMEOUT}];\n{head}(\n{body});\nout tags center qt {int(limit)};"
 
 
@@ -141,13 +151,18 @@ class Places(Actor):
         for endpoint in ([own] if own else list(self.ENDPOINTS)):
             ctx.check_abort()
             data, err = get_json(crawler, f"{endpoint}?data={quote(query)}")
+            if err and ("HTTP 429" in err or "HTTP 504" in err):
+                ctx.log.info(f"{endpoint.split('/')[2]} is busy ({err}); trying again in {BUSY_PAUSE} s")
+                time.sleep(BUSY_PAUSE)
+                data, err = get_json(crawler, f"{endpoint}?data={quote(query)}")
             if not err:
                 break
             ctx.record_failure(endpoint, err)
             errors.append(f"{endpoint.split('/')[2]}: {err}")
             data = None
         if data is None:
-            raise RuntimeError("Overpass API: " + "; ".join(errors))
+            hint = "" if own else "; the public instance may be down: set endpoint to another Overpass server"
+            raise RuntimeError("Overpass API: " + "; ".join(errors) + hint)
         remark = (data or {}).get("remark")
         if remark and "error" in remark.lower():
             raise RuntimeError(f"Overpass API: {remark[:300]}")

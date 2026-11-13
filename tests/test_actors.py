@@ -272,3 +272,24 @@ def test_accept_language_rejects_header_injection(storage):
     with pytest.raises(InputError, match="acceptLanguage"):
         run_actor("website-content-crawler", {"startUrls": ["https://example.com/"],
                   "acceptLanguage": "en\r\nX-Evil: 1"}, storage)
+
+
+def test_contact_details_reads_every_site_not_only_the_first(site, storage):
+    # three start URLs on one site: each gets its own page budget
+    starts = [site.base + "/", site.base + "/about", site.base + "/blog/post-1"]
+    rec, items, kv = _run(storage, "contact-details", {"startUrls": starts, "maxPagesPerSite": 2})
+    assert len(items) == 3 and all(it["pagesRead"] for it in items)
+
+
+def test_seo_audit_dead_page_scores_zero_and_blocked_start_is_listed(site, storage):
+    rec, items, kv = _run(storage, "seo-audit", {"startUrls": [site.base + "/missing",
+                                                                 site.base + "/private/secret"]})
+    by_url = {i["url"]: i for i in items}
+    assert by_url[site.base + "/private/secret"]["measured"] is False
+    assert by_url[site.base + "/private/secret"]["score"] is None
+
+
+def test_sitemap_reports_truncation_per_origin(site, storage):
+    rec, items, kv = _run(storage, "sitemap", {"startUrls": [site.base + "/"], "maxSitemaps": 1})
+    out = kv.get("OUTPUT")
+    assert out[site.base]["truncated"] is True

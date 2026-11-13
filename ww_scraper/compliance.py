@@ -290,6 +290,27 @@ def origin_of(url: str) -> str:
     return f"{p.scheme}://{p.netloc}".lower()
 
 
+_TLS_CAUSES = (("hostname mismatch", "certificate is for another host name"),
+               ("doesn't match", "certificate is for another host name"),
+               ("certificate has expired", "certificate has expired"),
+               ("self-signed", "self-signed certificate"),
+               ("self signed", "self-signed certificate"),
+               ("unable to get local issuer", "incomplete certificate chain"),
+               ("wrong version number", "no TLS on this port"))
+
+
+def network_reason(e: Exception) -> str:
+    """Short cause of a requests exception, with the TLS cause when there is one: a
+    certificate issued for the hosting company instead of the site is an audit finding."""
+    name = type(e).__name__
+    if isinstance(e, requests.exceptions.SSLError):
+        text = str(e).lower()
+        for needle, cause in _TLS_CAUSES:
+            if needle in text:
+                return f"{name}: {cause}"
+    return name
+
+
 class RobotsEntry:
     """Parsed robots.txt for one origin.
 
@@ -298,7 +319,9 @@ class RobotsEntry:
     by the site, it carries the cause in reason and it expires so a later request asks again.
     """
 
-    def __init__(self, status: str, parser=None, http_status: int = 0, reason: str = ""):
+    def __init__(self, status: str, parser=None, http_status: int = 0, reason: str = "",
+                 server: str = ""):
+        self.server = server
         self.status = status
         self.parser = parser
         self.http_status = http_status
@@ -386,6 +409,12 @@ class RobotsCache:
         if entry.status == "network-error":
             return False, f"robots.txt not read: {entry.reason} (network error, not a refusal)"
         detail = f"HTTP {entry.http_status}" if entry.http_status else (entry.reason or "no answer")
+        if entry.status == "denied":
+            # RFC 9309 lets a crawler fetch after a 4xx; ww-scraper does not after 401/403,
+            # which is usually a bot filter in front of the site, not the owner's robots.txt
+            via = f", server: {entry.server}" if entry.server else ""
+            return False, (f"robots.txt answered {detail}{via}: usually a bot filter, not a "
+                           "robots.txt rule; ww-scraper reads it as no permission")
         return False, f"robots.txt {entry.status} ({detail})"
 
     def _fetch(self, origin: str) -> RobotsEntry:
@@ -415,14 +444,15 @@ class RobotsCache:
                     return RobotsEntry("network-error", reason="DNS: unresolvable host")
                 return RobotsEntry("unreachable", reason=str(e))
             except requests.RequestException as e:
-                return RobotsEntry("network-error", reason=type(e).__name__)
+                return RobotsEntry("network-error", reason=network_reason(e))
             try:
                 code = resp.status_code
                 if code in _REDIRECT_CODES and resp.headers.get("Location"):
                     current = urljoin(current, resp.headers["Location"])
                     continue
                 if code in (401, 403):
-                    return RobotsEntry("denied", http_status=code)
+                    return RobotsEntry("denied", http_status=code,
+                                       server=(resp.headers.get("server") or "")[:60])
                 if 400 <= code < 500:
                     return RobotsEntry("missing", http_status=code)
                 if code >= 500 or code < 200 or code >= 300:

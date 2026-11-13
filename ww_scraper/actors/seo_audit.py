@@ -22,7 +22,9 @@ def audit_page(res, doc) -> dict:
     if res.status != 200:
         add("error", "status", f"HTTP status {res.status or res.error}")
     if doc is None:
-        item.update(issues=issues, score=max(0, 100 - sum(_PENALTY[i["severity"]] for i in issues)))
+        # nothing to audit (dead host, error page without HTML): it scores 0, not 90 for
+        # "only one error"
+        item.update(issues=issues, score=0)
         return item
     tl, dl = len(doc.title), len(doc.description)
     h1 = len(doc.headings.get("h1", []))
@@ -110,6 +112,10 @@ class SeoAudit(Actor):
         def on_page(res, req, doc):
             if res.blocked:
                 ctx.record_failure(req["url"], res.error)
+                if req.get("depth", 0) == 0:
+                    # a start URL that could not be read stays visible in the dataset
+                    ctx.push_data({"url": req["url"], "finalUrl": res.final_url, "status": res.status,
+                                   "measured": False, "reason": res.error, "issues": [], "score": None})
                 return
             item = audit_page(res, doc)
             for i in item["issues"]:
@@ -125,11 +131,13 @@ class SeoAudit(Actor):
             entry = crawler.robots.get(origin + "/")
             sm = crawler.fetch(origin + "/sitemap.xml", accept_types=None, read_body=False)
             llms = crawler.fetch(origin + "/llms.txt", accept_types=None, read_body=False)
+            # None = could not be checked (blocked or no answer), which is not "absent"
             sites[origin] = {
                 "robotsTxt": entry.status,
                 "robotsSitemaps": entry.sitemaps,
-                "sitemapXml": sm.status == 200,
-                "llmsTxt": llms.status == 200 and not llms.content_type.startswith("text/html"),
+                "sitemapXml": None if (sm.blocked or not sm.status) else sm.status == 200,
+                "llmsTxt": (None if (llms.blocked or not llms.status) else
+                            llms.status == 200 and not llms.content_type.startswith("text/html")),
             }
         ctx.set_value("OUTPUT", {"sites": sites, "issueCounts": counts,
                                  "pages": ctx.dataset.count()})
