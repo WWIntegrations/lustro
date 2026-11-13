@@ -24,7 +24,7 @@ import requests
 
 from .compliance import (MAX_CRAWL_DELAY, MIN_INTERVAL_FLOOR, PoliteSession, RobotsCache,
                          SSRFBlocked, check_target, is_loopback_host, origin_of,
-                         parse_retry_after, pin_session)
+                         network_reason, parse_retry_after, pin_session)
 from .storage import MemoryRequestQueue
 
 HTML_TYPES = ("text/html", "application/xhtml+xml")
@@ -264,7 +264,7 @@ class PoliteCrawler:
                 self._inc("ssrfBlocked")
                 return None, f"ssrf: {e}"
             except requests.RequestException as e:
-                last_err = f"network: {type(e).__name__}"
+                last_err = f"network: {network_reason(e)}"
                 if attempt < self.max_retries:
                     self._inc("retries")
                     self._sleep(min(self.max_backoff, self.backoff_base * 2 ** attempt))
@@ -318,6 +318,10 @@ class PoliteCrawler:
                     res.final_url, res.error = current, f"network: {why}"
                     return res
                 self._inc("robotsBlocked")
+                if origin_of(current) != origin_of(url):
+                    # say whose robots.txt it was: after a redirect to another site (a shop
+                    # moved to a social profile) it is not the start site's own rule
+                    why = f"{why} of {origin_of(current)} after a redirect from {url}"
                 res.final_url, res.error, res.blocked = current, f"robots: {why}", True
                 return res
             self._apply_crawl_delay(current, self.robots.get(current))

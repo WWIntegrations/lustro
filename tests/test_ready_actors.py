@@ -342,3 +342,24 @@ def test_network_errors_are_not_retried_twice_over():
     calls.clear()
     fetch_body(NoDns(), "https://x.example/api", retries=2, pause=0)
     assert len(calls) == 3
+
+
+def test_only_with_website_filters_on_the_server():
+    q = build_query(["amenity=dentist"], {"city": "X", "onlyWithWebsite": True}, 25)
+    assert '[~"^(website|contact:website)$"~"."]' in q
+    assert "website" not in build_query(["amenity=dentist"], {"city": "X"}, 25)
+
+
+def test_organization_subtypes_are_recognised():
+    from ww_scraper.schema_types import is_organization_type
+    for t in ("Dentist", "BeautySalon", "HairSalon", "CafeOrCoffeeShop", "FoodEstablishment",
+              "https://schema.org/MedicalClinic", "BikeStore", "Organization"):
+        assert is_organization_type(t), t
+    for t in ("WebSite", "WebPage", "Person", "BreadcrumbList", None):
+        assert not is_organization_type(t), t
+
+
+def test_llms_txt_with_bom_is_valid_and_empty_file_is_not_present():
+    from ww_scraper.actors.llms_txt import validate_llms_txt
+    r = validate_llms_txt("﻿# Clinic\n\n> Dental care in the city.\n\n## Pages\n\n- [Home](https://e.com/)\n")
+    assert r["valid"], r["issues"]

@@ -191,3 +191,20 @@ def test_robots_network_error_is_not_a_refusal_and_expires(site):
     assert s.calls == 1 + rc.network_retries
     rc.network_ttl, s.fail = 0, 0                        # expired and the network is back
     assert rc.allowed(site.base + "/about") == (True, "")
+
+
+def test_robots_401_403_explains_bot_filter_and_names_server():
+    from ww_scraper.compliance import RobotsEntry
+    rc = RobotsCache(make_session(0))
+    rc._cache["https://shop.example"] = RobotsEntry("denied", http_status=403, server="cloudflare")
+    ok, why = rc.allowed("https://shop.example/")
+    assert not ok and "HTTP 403" in why and "cloudflare" in why and "bot filter" in why
+
+
+def test_network_reason_names_the_tls_problem():
+    import requests
+    from ww_scraper.compliance import network_reason
+    e = requests.exceptions.SSLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                                     "Hostname mismatch, certificate is not valid for 'shop.pl'")
+    assert network_reason(e) == "SSLError: certificate is for another host name"
+    assert network_reason(requests.ConnectTimeout("x")) == "ConnectTimeout"

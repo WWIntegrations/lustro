@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Defects found while measuring 150 local business sites; seven of them changed results.
+
+- `contact-details` read nothing from the third or fourth start URL on: each site's crawl
+  used the run's durable queue, which already counted the pages of the sites before it.
+  Every site now gets its own page budget.
+- `contact-details` takes address and phone from every schema.org business subtype
+  (Dentist, BeautySalon, HairSalon, CafeOrCoffeeShop, FoodEstablishment and the rest of
+  the LocalBusiness tree), not only from a short list.
+- `sitemap`: `maxSitemaps` and `maxUrls` apply per origin, and each origin reports
+  `truncated`. One site with 300,000 URLs used to leave every site after it at `urls: 0`.
+- `places`: `onlyWithWebsite` is part of the Overpass query, so `maxResults` counts places
+  with a website (before, it cut the list first, inside one map tile). The second default
+  server was the same machine as the first and is gone; a failure suggests `endpoint`. A
+  busy answer (429/504) is tried once more after 30 s.
+- `llms-txt`: a UTF-8 BOM (written by Yoast and All in One SEO) no longer fails the H1 check,
+  an empty file is not `present`, and a file that could not be checked is `present: null`.
+- `seo-audit`: a page with no document (dead host, error without HTML) scores 0, not 90; a
+  start URL that could not be read is a dataset item with `measured: false`; `sitemapXml`
+  and `llmsTxt` are `null` when they could not be checked.
+- robots.txt messages: a 401/403 names the server and says it is usually a bot filter; a
+  block after a redirect names the other site's robots.txt; TLS errors give the cause
+  (certificate for another host, expired, self-signed, incomplete chain).
+- The CLI no longer prints a dataset path for a run that wrote no items.
 - Hostile markup can no longer stall or crash extraction: tables nested in table cells
   used to be rendered again at every level above them (20 levels took 7 s, each further
   level doubled it), and pages nested thousands of elements deep hit Python's recursion

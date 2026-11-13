@@ -18,6 +18,8 @@ from urllib.parse import unquote, urlsplit
 
 from ..actor import MIN_INTERVAL, REDACT, RENDER, START_URLS, Actor
 from ..compliance import _EMAIL_RE, _PHONE_RE, _phone_sub, redact_obj
+from ..schema_types import is_organization_type
+from ..storage import MemoryRequestQueue
 from .structured_data import flatten_jsonld
 
 ROLE_LOCALS = {
@@ -129,9 +131,7 @@ class ContactDetails(Actor):
             for obj in flatten_jsonld(doc.jsonld):
                 types = obj.get("@type")
                 types = types if isinstance(types, list) else [types]
-                if not any(t in ("Organization", "LocalBusiness", "Corporation", "Store", "Restaurant",
-                                 "ProfessionalService", "MedicalBusiness", "LegalService")
-                           or (isinstance(t, str) and t.endswith("Business")) for t in types):
+                if not any(is_organization_type(t) for t in types):
                     continue
                 org["name"] = org["name"] or (obj.get("name") if isinstance(obj.get("name"), str) else None)
                 org["legalName"] = org["legalName"] or obj.get("legalName")
@@ -154,8 +154,10 @@ class ContactDetails(Actor):
                         social.setdefault(sp[0], sp[1])
 
         include = [start] + [g for g in ctx.input["pagePatterns"]]
+        # a queue of its own per site: the run's durable queue counts the pages of every
+        # site before this one, so from the third or fourth site on nothing was read
         ctx.crawler().crawl([start], on_page, max_pages=ctx.input["maxPagesPerSite"], max_depth=1,
-                            include=include)
+                            include=include, queue=MemoryRequestQueue())
         only_text = sorted(text_phones - set(phones))
         rec = {
             "startUrl": start, "organization": org["name"], "legalName": org["legalName"], "vatId": org["vatId"],

@@ -254,8 +254,9 @@ def main(argv=None) -> int:
             print(json.dumps(it, ensure_ascii=False))
     else:
         print(json.dumps(rec, ensure_ascii=False, indent=2))
-        print(f"dataset: {storage.root / 'datasets' / rec['defaultDatasetId'] / 'items.jsonl'}",
-              file=sys.stderr)
+        path = storage.root / "datasets" / rec["defaultDatasetId"] / "items.jsonl"
+        # a failed run may have written nothing: do not point at a file that is not there
+        print(f"dataset: {path}" if path.exists() else "dataset: (no items written)", file=sys.stderr)
     return 0 if rec["status"] == "SUCCEEDED" else 1
 
 
