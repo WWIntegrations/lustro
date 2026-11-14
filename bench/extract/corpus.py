@@ -10,11 +10,15 @@ and search engines read past (raw newlines inside a JSON string, double-escaped 
     jsonld-graph      @graph with the Offer and Brand as separate nodes joined by @id
     price-locale      price as a string in a local format: "1.299,00", "1 299,00", "1,299.00"
     price-symbol      price string with a currency sign or code: "49,99 zł", "$49.99"
+    price-spec-list   Offer.priceSpecification as a list (as WooCommerce writes it), half of
+                      them with a crossed-out StrikethroughPrice before the selling price
     jsonld-raw-text   a raw newline or tab inside a JSON string (strict JSON rejects it)
     jsonld-entities   HTML entities inside JSON-LD text ("Kawa &amp; herbata")
     relative-image    image given as a path relative to the page
     microdata         itemscope/itemprop only, no JSON-LD
     microdata-text    microdata with the price only in the visible text ("1 299,00 zł")
+    microdata-listing a listing page: three microdata products, no SKU or GTIN, each name
+                      written on its link (<a href="/p/1" itemprop="name">), as listing cards do
     opengraph         Open Graph product tags only (og:type product, product:price:amount)
     product-group     ProductGroup with hasVariant, each variant its own SKU and price
     aggregate-offer   AggregateOffer with lowPrice and highPrice
@@ -26,8 +30,8 @@ import json
 import random
 
 BASE = "https://shop.example"
-ENCODINGS = ["jsonld", "jsonld-graph", "price-locale", "price-symbol", "jsonld-raw-text",
-             "jsonld-entities", "relative-image", "microdata", "microdata-text", "opengraph",
+ENCODINGS = ["jsonld", "jsonld-graph", "price-locale", "price-symbol", "price-spec-list", "jsonld-raw-text",
+             "jsonld-entities", "relative-image", "microdata", "microdata-text", "microdata-listing", "opengraph",
              "product-group", "aggregate-offer"]
 AVAIL = ["InStock", "OutOfStock", "PreOrder", "BackOrder", "LimitedAvailability"]
 AVAIL_FORMS = [lambda a: f"https://schema.org/{a}", lambda a: f"http://schema.org/{a}", lambda a: a]
@@ -141,6 +145,15 @@ def make(rng, k, enc):
         doc = _page(_script(_jsonld_product(p, rng, offers=_offer(p, rng, price=_locale(p["price"], rng)))))
     elif enc == "price-symbol":
         doc = _page(_script(_jsonld_product(p, rng, offers=_offer(p, rng, price=_with_sign(p["price"], p["currency"], rng)))))
+    elif enc == "price-spec-list":
+        specs = [{"@type": "UnitPriceSpecification", "price": f"{p['price']:.2f}", "priceCurrency": p["currency"]}]
+        if rng.random() < 0.5:
+            specs.insert(0, {"@type": "UnitPriceSpecification", "priceType": "https://schema.org/StrikethroughPrice",
+                             "price": f"{p['price'] * 1.25:.2f}", "priceCurrency": p["currency"]})
+        offer = {"@type": "Offer", "priceSpecification": specs,
+                 "availability": rng.choice(AVAIL_FORMS)(p["availability"]), "url": url}
+        doc = _page(_script({"@context": "https://schema.org", "@graph": [
+            dict(_jsonld_product(p, rng, offers=[offer]), **{"@id": f"{url}#product"})]}))
     elif enc == "jsonld-raw-text":
         raw = _script(_jsonld_product(p, rng, description="Pierwsza linia.\nDruga linia.\tKoniec."))
         doc = _page(raw.replace("\\n", "\n").replace("\\t", "\t"))
@@ -152,6 +165,20 @@ def make(rng, k, enc):
         doc = _page(_script(_jsonld_product(p, rng, image=f"/img/{k}.jpg")))
     elif enc in ("microdata", "microdata-text"):
         doc = _page("", _microdata(p, rng, enc == "microdata-text"))
+    elif enc == "microdata-listing":
+        cards, truth = [], []
+        for i in range(3):
+            q = dict(_product(rng, k * 10 + i), sku=None, gtin=None, brand=None)
+            q["image"] = f"{BASE}/img/l{k}-{i}.png"
+            cards.append(f'<div class="card" itemscope itemtype="https://schema.org/Product">'
+                         f'<img itemprop="image" src="/img/l{k}-{i}.png" alt="">'
+                         f'<h4 itemprop="offers" itemscope itemtype="https://schema.org/Offer">'
+                         f'<span itemprop="price">{SIGN[q["currency"]]}{q["price"]:.2f}</span>'
+                         f'<meta itemprop="priceCurrency" content="{q["currency"]}">'
+                         f'<link itemprop="availability" href="https://schema.org/{q["availability"]}"></h4>'
+                         f'<h4><a href="/p/l{k}-{i}" class="title" itemprop="name">\n  {q["name"]}\n</a></h4></div>')
+            truth.append(q)
+        doc = _page("", "".join(cards))
     elif enc == "opengraph":
         og = OG_AVAIL[p["availability"]]
         p["availability"] = OG_AVAIL_TRUTH[og]

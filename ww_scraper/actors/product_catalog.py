@@ -42,6 +42,12 @@ def _text(v):
     return (_unescape_left(v.strip()) or None) if isinstance(v, str) else None
 
 
+def _category(v):
+    """Category as text; some shops write it as HTML links to their category pages."""
+    v = _name(v)
+    return (html_to_text(v, limit=500) or None) if v and "<" in v else v
+
+
 def _url(v, base=""):
     """First URL of a value (string, list, ImageObject), absolute against base; http(s) only."""
     if isinstance(v, list):
@@ -124,6 +130,22 @@ def _ungroup(s, sep):
     return head + "".join(groups)
 
 
+# priceType values that name a reference price, not what the buyer pays (schema.org
+# PriceTypeEnumeration; Google reads StrikethroughPrice as the crossed-out "was" price)
+_REFERENCE_PRICE = {"strikethroughprice", "listprice", "srp", "msrp", "minimumadvertisedprice",
+                    "invoiceprice"}
+
+
+def _spec(offer: dict) -> dict:
+    """The selling price specification of an Offer: priceSpecification may be one object or a
+    list (WooCommerce writes a list), and a list may carry a crossed-out reference price."""
+    spec = offer.get("priceSpecification")
+    specs = [x for x in (spec if isinstance(spec, list) else [spec]) if isinstance(x, dict)]
+    selling = [x for x in specs
+               if re.sub(r"[^a-z]", "", (_enum(x.get("priceType")) or "").lower()) not in _REFERENCE_PRICE]
+    return (selling or specs or [{}])[0]
+
+
 def _offer(offers):
     """(price, lowPrice, highPrice, currency, availability, condition, priceValidUntil, sellers)"""
     if isinstance(offers, dict) and "AggregateOffer" in _types(offers):
@@ -136,13 +158,10 @@ def _offer(offers):
         return (None,) * 8
     prices = []
     for o in items:
-        spec = o.get("priceSpecification")
-        spec = spec[0] if isinstance(spec, list) and spec else spec
-        p = _num(first(o.get("price"), (spec or {}).get("price") if isinstance(spec, dict) else None))
-        prices.append((p, o))
+        prices.append((_num(first(o.get("price"), _spec(o).get("price"))), o))
     known = [x for x in prices if x[0] is not None]
     p, o = min(known, key=lambda x: x[0]) if known else prices[0]
-    spec = o.get("priceSpecification") if isinstance(o.get("priceSpecification"), dict) else {}
+    spec = _spec(o)
     lo = min(x[0] for x in known) if len(known) > 1 else None
     hi = max(x[0] for x in known) if len(known) > 1 else None
     return (p, lo, hi, first(o.get("priceCurrency"), spec.get("priceCurrency")), _enum(o.get("availability")),
@@ -158,7 +177,7 @@ def product(obj: dict, page_url: str, parent: dict | None = None) -> dict:
         "name": _name(base.get("name")), "url": _url(obj.get("url"), page_url) or page_url, "pageUrl": page_url,
         "sku": base.get("sku") if isinstance(base.get("sku"), (str, int)) else None, "gtin": gtin,
         "mpn": base.get("mpn") if isinstance(base.get("mpn"), str) else None,
-        "brand": _name(base.get("brand")), "category": _name(base.get("category")),
+        "brand": _name(base.get("brand")), "category": _category(base.get("category")),
         "price": price, "lowPrice": lo, "highPrice": hi, "currency": cur, "availability": avail,
         "condition": cond, "priceValidUntil": valid, "offerCount": offers,
         "image": _url(base.get("image"), page_url),
@@ -242,9 +261,21 @@ def products_on_page(doc, page_url: str) -> list:
     return out
 
 
+def dedupe_key(p: dict) -> str:
+    """GTIN, then SKU with colour and size, then the product's own URL. A product without
+    any of them (a listing page in microdata) is told apart by its name on that page."""
+    if p["gtin"]:
+        return p["gtin"]
+    if p["sku"]:
+        return f"sku:{p['sku']}:{p['color']}:{p['size']}"
+    if p["url"] != p["pageUrl"]:
+        return p["url"]
+    return f"{p['pageUrl']}#name:{p['name']}"
+
+
 class ProductCatalog(Actor):
     name = "product-catalog"
-    version = "1.2.0"
+    version = "1.3.0"
     dataset_schema = {
         "fields": {"type": "object", "required": ["name", "url", "pageUrl", "price", "currency", "availability", "issues"],
                    "properties": {
@@ -293,7 +324,7 @@ class ProductCatalog(Actor):
             summary["pages"] += 1
             items = []
             for p in products_on_page(doc, res.final_url or req["url"]):
-                key = p["gtin"] or (f"sku:{p['sku']}:{p['color']}:{p['size']}" if p["sku"] else None) or p["url"]
+                key = dedupe_key(p)
                 if key in seen:
                     summary["duplicates"] += 1
                     continue
