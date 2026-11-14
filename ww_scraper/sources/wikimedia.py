@@ -1,7 +1,8 @@
 """Wikimedia Commons source - commons.wikimedia.org MediaWiki API.
 
 Official API (generator=search in the File namespace); author and license come from
-each file's extmetadata. Assets are served from upload.wikimedia.org.
+each file's extmetadata. Assets are served from upload.wikimedia.org (originals) and
+thumb.wikimedia.org (thumbnails).
 """
 from __future__ import annotations
 
@@ -22,7 +23,8 @@ def _ext(ext: dict, key: str) -> str:
 
 class Wikimedia:
     name = "wikimedia"
-    allow_hosts = frozenset({"commons.wikimedia.org", "upload.wikimedia.org"})
+    # thumbnails moved to thumb.wikimedia.org (seen 2026-11-14); originals stay on upload
+    allow_hosts = frozenset({"commons.wikimedia.org", "upload.wikimedia.org", "thumb.wikimedia.org"})
 
     def search(self, session: requests.Session, query: str, limit: int) -> list[Resource]:
         params = {

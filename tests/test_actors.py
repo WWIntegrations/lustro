@@ -199,7 +199,7 @@ def test_media_collector_wraps_search(storage, monkeypatch):
     import ww_scraper
     from ww_scraper.models import Resource
 
-    def fake_search(query, sources=None, limit=12, verify=True, session=None):
+    def fake_search(query, sources=None, limit=12, verify=True, session=None, report=None):
         assert query == "koty" and sources == ["openverse"] and limit == 2
         return [Resource(source="openverse", title="Kot", url="https://api.openverse.org/x.jpg",
                          license="CC BY 4.0")]
@@ -298,3 +298,29 @@ def test_sitemap_reports_truncation_per_origin(site, storage):
 def test_sitemap_not_truncated_when_everything_fits(site, storage):
     rec, items, kv = _run(storage, "sitemap", {"startUrls": [site.base + "/"], "maxSitemaps": 50})
     assert kv.get("OUTPUT")[site.base]["truncated"] is False
+
+
+def test_media_collector_warns_per_source_and_fails_when_every_source_failed(storage, monkeypatch):
+    import ww_scraper
+
+    def all_broken(query, sources=None, limit=12, verify=True, session=None, report=None):
+        report.update({"openverse": {"found": 0, "verified": 0, "error": "HTTPError: 504"},
+                       "met": {"found": 0, "verified": 0, "error": "HTTPError: 410"}})
+        return []
+
+    monkeypatch.setattr(ww_scraper, "search", all_broken)
+    rec = run_actor("media-collector", {"query": "koty"}, storage)
+    assert rec["status"] == "FAILED"
+    assert "openverse" in rec["statusMessage"] and "410" in rec["statusMessage"]
+
+    def one_broken(query, sources=None, limit=12, verify=True, session=None, report=None):
+        report.update({"openverse": {"found": 0, "verified": 0, "error": "HTTPError: 504"},
+                       "wikimedia": {"found": 3, "verified": 0}})
+        return []
+
+    monkeypatch.setattr(ww_scraper, "search", one_broken)
+    rec = run_actor("media-collector", {"query": "koty"}, storage)
+    assert rec["status"] == "SUCCEEDED"          # a source answered; nothing passed the check
+    out = storage.kv(rec["id"]).get("OUTPUT")
+    assert out["sources"]["wikimedia"] == {"found": 3, "verified": 0}
+    assert out["sources"]["openverse"]["error"] == "HTTPError: 504"

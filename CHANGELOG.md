@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `media-collector` no longer fails silently. A run of every actor found it returning 0
+  items with no warning: each source error was swallowed. Now:
+  - `search(..., report={})` records per source what was found, what passed the live check,
+    and the error or the reason it was skipped; the actor logs a warning for each, writes
+    them to `OUTPUT.sources`, and ends FAILED when every source that ran failed.
+  - Met: `/v1/search` was retired on 2026-10-01 (HTTP 410); the source uses `/v1.1/search`
+    with `limit` and `offset`.
+  - Wikimedia: thumbnails are served from `thumb.wikimedia.org`, which was not on the
+    source's host allowlist, so every result failed the live check.
+  - Openverse: one more try after a 502, 503 or 504 from its gateway on slow searches.
+  - Pexels without `PEXELS_API_KEY` is reported as skipped, not as an empty answer.
+
+  Live, query "mountain": 0 items before, 9 after (Openverse, Wikimedia, Met).
+
 - `product-catalog` 1.3.0, from a check on 25 live shops (`bench/extract/live-check.md`:
   product data from 6, no extracted price wrong):
   - `priceSpecification` as a list (WooCommerce) gives the currency too, and a crossed-out

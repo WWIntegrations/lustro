@@ -10,7 +10,8 @@ import requests
 
 from ..models import Resource
 
-SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1/search"
+# /v1/search was retired on 2026-10-01 (HTTP 410); v1.1 is paginated with limit and offset
+SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1.1/search"
 OBJECT = "https://collectionapi.metmuseum.org/public/collection/v1/objects/"
 
 
@@ -19,9 +20,11 @@ class Met:
     allow_hosts = frozenset({"images.metmuseum.org", "collectionapi.metmuseum.org"})
 
     def search(self, session: requests.Session, query: str, limit: int) -> list[Resource]:
-        r = session.get(SEARCH, params={"q": query, "hasImages": "true"}, timeout=30)
+        want = max(1, min(int(limit) * 3, 60))     # not every hit is public domain
+        r = session.get(SEARCH, params={"q": query, "hasImages": "true", "limit": want, "offset": 0},
+                        timeout=30)
         r.raise_for_status()
-        ids = (r.json().get("objectIDs") or [])[: max(1, min(int(limit) * 3, 60))]
+        ids = (r.json().get("objectIDs") or [])[:want]
         out: list[Resource] = []
         for oid in ids:
             if len(out) >= limit:
