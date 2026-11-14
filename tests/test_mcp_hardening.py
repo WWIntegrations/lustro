@@ -182,3 +182,39 @@ def test_render_gets_the_run_allowlist(site, storage, monkeypatch):
                                                 "maxPages": 1, "render": True},
                     storage, allow_loopback=True, allow_hosts={"127.0.0.1"})
     assert rec["status"] == "SUCCEEDED" and seen and seen[0] == frozenset({"127.0.0.1"})
+
+
+def _shell_run(site, storage, monkeypatch, outputs):
+    import ww_scraper.render as render_mod
+    waits = []
+
+    def fake_render_dom(url, **kw):
+        waits.append(kw["wait_ms"])
+        return outputs[min(len(waits), len(outputs)) - 1]
+
+    monkeypatch.setattr(render_mod, "render_dom", fake_render_dom)
+    rec = run_actor("website-content-crawler", {"startUrls": [site.base + "/shell"], "minIntervalSecs": 0,
+                                                "maxPages": 1, "maxDepth": 0, "render": True},
+                    storage, allow_loopback=True)
+    return rec, waits
+
+
+EMPTY = "<html><body><div id='root'></div><script>x()</script></body></html>"
+FULL = "<html><body><main>" + " ".join(f"word{i}" for i in range(60)) + "</main></body></html>"
+
+
+def test_render_that_added_no_text_is_retried_with_a_longer_wait(site, storage, monkeypatch):
+    rec, waits = _shell_run(site, storage, monkeypatch, [EMPTY, FULL])
+    assert waits == [3000, 9000]
+    assert rec["stats"].get("renderRetried") == 1 and not rec["stats"].get("renderEmpty")
+    assert rec["stats"]["items"] == 1
+
+
+def test_render_still_empty_after_retry_is_counted_and_logged(site, storage, monkeypatch):
+    rec, waits = _shell_run(site, storage, monkeypatch, [EMPTY, EMPTY])
+    assert len(waits) == 2 and rec["stats"].get("renderEmpty") == 1
+
+
+def test_render_with_text_is_not_retried(site, storage, monkeypatch):
+    rec, waits = _shell_run(site, storage, monkeypatch, [FULL])
+    assert waits == [3000] and not rec["stats"].get("renderRetried")
