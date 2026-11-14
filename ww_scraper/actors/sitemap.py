@@ -16,6 +16,10 @@ SITEMAP_TYPES = ("application/xml", "text/xml", "application/x-gzip", "applicati
 MAX_UNCOMPRESSED = 50 * 1024 * 1024  # sitemap protocol limit
 
 
+# limits are per origin; this caps a whole run (100 start URLs x maxUrls could be 100M rows)
+RUN_URL_CAP = 2_000_000
+
+
 class SitemapError(ValueError):
     pass
 
@@ -173,9 +177,11 @@ class Sitemap(Actor):
         summary = {}
         # both limits apply per origin: one site with 300,000 URLs must not leave the
         # sites after it looking as if they had no sitemap
+        run_total = 0
         for origin in dict.fromkeys(origin_of(u) for u in inp["startUrls"]):
             total = 0
             fetched = 0
+            skipped = 0                       # sitemaps or URLs left out by a limit
             entry = crawler.robots.get(origin + "/")
             todo = collections.deque(entry.sitemaps or [])
             todo.append(origin + "/sitemap.xml")
@@ -199,20 +205,28 @@ class Sitemap(Actor):
                     continue
                 found.append({"url": sm, "kind": kind, "entries": len(entries)})
                 if kind == "index":
-                    todo.extend(e for e in entries if e not in seen)
+                    # the queue never grows past what maxSitemaps can still fetch: a hostile
+                    # index with a million entries must not fill memory
+                    room = max(0, inp["maxSitemaps"] - fetched - len(todo))
+                    new = [e for e in entries if e not in seen]
+                    skipped += max(0, len(new) - room)
+                    todo.extend(new[:room])
                     continue
                 batch = []
-                for e in entries:
-                    if total >= inp["maxUrls"]:
+                for i, e in enumerate(entries):
+                    if total >= inp["maxUrls"] or run_total >= RUN_URL_CAP:
+                        skipped += len(entries) - i
                         break
                     if e["url"] in seen_urls:
                         continue
                     seen_urls.add(e["url"])
                     batch.append(dict(e, sitemap=sm, origin=origin))
                     total += 1
+                    run_total += 1
                 count += len(batch)
                 ctx.push_data(batch)
-            truncated = total >= inp["maxUrls"] or (bool(todo) and fetched >= inp["maxSitemaps"])
+            skipped += len(set(todo) - seen)  # queued sitemaps never fetched
+            truncated = skipped > 0
             if truncated:
                 ctx.log.warning(f"{origin}: stopped at maxSitemaps={inp['maxSitemaps']} / "
                                 f"maxUrls={inp['maxUrls']}; the sitemap list is incomplete")

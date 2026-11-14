@@ -344,6 +344,14 @@ def mask_secrets(text, secrets) -> str:
     return text
 
 
+def printable(text: str) -> str:
+    """Text from servers and pages (headers, redirect targets, error bodies) made safe for
+    a terminal and a log file: control characters, escape sequences and bidi overrides
+    become "?"; line breaks stay, because messages such as a logged query use them."""
+    s = text if isinstance(text, str) else str(text)
+    return "".join(ch if ch.isprintable() or ch == "\n" else "?" for ch in s)
+
+
 class RunLog:
     """Tiny line logger: storage/runs/<id>.log plus an optional stream."""
 
@@ -354,7 +362,7 @@ class RunLog:
         self._lock = threading.Lock()
 
     def _write(self, level, msg):
-        msg = mask_secrets(msg, self.secrets)
+        msg = printable(mask_secrets(msg, self.secrets))
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S")
         line = f"{ts} {level:5s} {msg}"
         with self._lock:
@@ -734,7 +742,8 @@ class RunContext:
     def record_failure(self, url, reason):
         self.stats["failed"] += 1
         if len(self.failures) < 1000:
-            self.failures.append({"url": self.mask(url), "reason": self.mask(reason)})
+            self.failures.append({"url": printable(self.mask(url)),
+                                  "reason": printable(self.mask(reason))})
         self.log.warning(f"{url}: {reason}")
 
     def crawler(self, **kwargs):

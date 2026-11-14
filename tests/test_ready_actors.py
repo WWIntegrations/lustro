@@ -376,3 +376,11 @@ def test_places_skips_a_hung_instance_by_its_status_page_and_reads_env(storage, 
     fails = storage.kv(rec["id"]).get("FAILED_REQUESTS")
     assert any("not answering" in f["reason"] for f in fails)
     assert out["phonesMasked"] is True
+
+
+def test_places_status_probe_url_for_any_endpoint_shape():
+    from ww_scraper.actors.places import status_url_of
+    assert status_url_of("https://h.example/api/interpreter") == "https://h.example/api/status"
+    assert status_url_of("https://h.example") == "https://h.example/api/status"
+    assert status_url_of("https://h.example/osm/tools/overpass/api/interpreter?x=1") == \
+        "https://h.example/osm/tools/overpass/api/status"

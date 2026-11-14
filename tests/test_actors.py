@@ -293,3 +293,8 @@ def test_sitemap_reports_truncation_per_origin(site, storage):
     rec, items, kv = _run(storage, "sitemap", {"startUrls": [site.base + "/"], "maxSitemaps": 1})
     out = kv.get("OUTPUT")
     assert out[site.base]["truncated"] is True
+
+
+def test_sitemap_not_truncated_when_everything_fits(site, storage):
+    rec, items, kv = _run(storage, "sitemap", {"startUrls": [site.base + "/"], "maxSitemaps": 50})
+    assert kv.get("OUTPUT")[site.base]["truncated"] is False

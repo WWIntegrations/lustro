@@ -452,7 +452,8 @@ class RobotsCache:
                     continue
                 if code in (401, 403):
                     return RobotsEntry("denied", http_status=code,
-                                       server=(resp.headers.get("server") or "")[:60])
+                                       server=re.sub(r"[^\x20-\x7e]", "?",
+                                                     resp.headers.get("server") or "")[:60])
                 if 400 <= code < 500:
                     return RobotsEntry("missing", http_status=code)
                 if code >= 500 or code < 200 or code >= 300:
