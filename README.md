@@ -107,10 +107,17 @@ CSV. ww-scraper did none of the four.
 On a generated 500-page site where every page is also linked as a print view, with tracking
 parameters, with a trailing slash and through an old redirecting path
 ([bench/crawl](bench/crawl/README.md)), with the same budget for both (10 requests in flight):
-ww-scraper downloaded 510 pages and handed over 0 duplicates in 1.6 s and 35 MB; Crawlee
+ww-scraper downloaded 508 pages and handed over 0 duplicates in 1.5 s and 35 MB; Crawlee
 downloaded 2,500 pages, handed over 2,000 duplicates, followed links from a `nofollow` page,
-and took 8.3 s and 389 MB. ww-scraper learns from each site's `rel=canonical` which URL
+and took 5.9 s and 390 MB. ww-scraper learns from each site's `rel=canonical` which URL
 variants are the same page.
+
+Product extraction is measured against known answers on 300 generated product pages in 12
+encodings shops publish ([bench/extract](bench/extract/README.md)): JSON-LD with `@graph`
+references, prices written as `1.299,00 zł` or `$49.99`, raw newlines inside JSON strings,
+microdata only, Open Graph tags only, ProductGroup variants. Before the fixes that bench
+led to, `product-catalog` got 71% of fields right and found no product on 75 of the pages;
+now it gets every field right on all 300, and on 3,600 more pages from three other seeds.
 
 ## Platform primitives
 
