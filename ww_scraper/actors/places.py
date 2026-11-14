@@ -5,12 +5,19 @@ licence requires, so the result can be reused, shared and published.
 Pick a category (or raw OSM tags) and an area: a city name, a circle around a point, or a
 bounding box. The default endpoint is a public instance whose robots.txt allows API use;
 the main overpass-api.de instance disallows /api/ to crawlers, so ww-scraper never calls it.
+
+Without any server: download a regional extract (.osm.pbf, e.g. from download.geofabrik.de,
+by hand or with your own script), put it in the directory named by WW_SCRAPER_OSM_DIR and
+pass its file name as osmFile. The extract is read locally (optional `osmium` package); no
+request leaves the machine, the result is the same shape, and the run is repeatable.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import time
+from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
@@ -26,6 +33,9 @@ ATTRIBUTION = "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetma
 ENDPOINTS = ("https://overpass.kumi.systems/api/interpreter",)
 # Instances of your own (or another operator you trust), tried first: comma-separated https URLs
 ENV_ENDPOINTS = "WW_SCRAPER_OVERPASS"
+# Directory with OSM extracts the operator downloaded. osmFile is a file name inside it, never
+# a path: a run started over the API or MCP must not be able to read other files.
+ENV_OSM_DIR = "WW_SCRAPER_OSM_DIR"
 PROBE_TIMEOUT = 10           # /api/status answers at once on a working server
 BUSY_PAUSE = 30              # seconds to wait once when a server says it is busy (429/504)
 SERVER_TIMEOUT = 60          # seconds the query lets the Overpass server work
@@ -98,6 +108,95 @@ def build_query(tags: list, inp: dict, limit: int) -> str:
     return f"[out:json][timeout:{SERVER_TIMEOUT}];\n{head}(\n{body});\nout tags center qt {int(limit)};"
 
 
+def osm_file_path(name: str) -> Path:
+    """The extract named `name` inside $WW_SCRAPER_OSM_DIR, or ValueError. Only a plain file
+    name ending in .osm.pbf; the resolved file must sit directly in that directory."""
+    root = os.environ.get(ENV_OSM_DIR, "").strip()
+    if not root:
+        raise ValueError(f"osmFile needs {ENV_OSM_DIR}: the directory that holds the .osm.pbf extracts")
+    if (not name.endswith(".osm.pbf") or name.startswith(".") or "/" in name or "\\" in name
+            or "\x00" in name):
+        raise ValueError(f"osmFile: a file name ending in .osm.pbf inside {ENV_OSM_DIR}, not a path")
+    base = Path(root).resolve()
+    path = (base / name).resolve()
+    if path.parent != base or not path.is_file():
+        raise ValueError(f"osmFile: no extract named {name!r} in {ENV_OSM_DIR}")
+    return path
+
+
+def _distance_m(lat1, lon1, lat2, lon2) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = (math.sin((p2 - p1) / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
+    return 2 * 6371008.8 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def area_test(inp: dict):
+    """A function (lat, lon) -> bool for the area of an osmFile run. A city name needs its
+    administrative boundary, which an extract read point by point does not give: refused."""
+    if inp.get("bbox"):
+        s, w, n, e = inp["bbox"]
+        if not (-90 <= s < n <= 90 and -180 <= w < e <= 180):
+            raise ValueError("bbox: [south, west, north, east] in degrees")
+        return lambda lat, lon: s <= lat <= n and w <= lon <= e
+    if inp.get("lat") is not None and inp.get("lon") is not None:
+        lat0, lon0, r = inp["lat"], inp["lon"], inp["radiusMeters"]
+        if not (-90 <= lat0 <= 90 and -180 <= lon0 <= 180):
+            raise ValueError("lat/lon out of range")
+        return lambda lat, lon: _distance_m(lat0, lon0, lat, lon) <= r
+    raise ValueError("with osmFile give lat+lon (with radiusMeters) or bbox; a city name needs a "
+                     "boundary the extract is not searched for")
+
+
+def read_osm_file(path: Path, tags: list, inside, only_with_website: bool, check_abort=None):
+    """Elements of a local extract that carry any of `tags` (key=value or key) and lie in the
+    area, as Overpass-shaped dicts (`center` for ways = centre of the bounding box, as
+    Overpass computes it). Relations are not read. Returns (elements, data timestamp)."""
+    try:
+        import osmium
+    except ImportError as e:
+        raise RuntimeError("osmFile needs the osmium package: pip install osmium") from e
+    pairs = []
+    for spec in tags:
+        k, _, v = spec.partition("=")
+        if not _TAG.fullmatch(k) or (v and not _VALUE.fullmatch(v)):
+            raise ValueError(f"tag {spec!r}: use key=value with plain characters")
+        pairs.append((k, v))
+    keys = sorted({k for k, _ in pairs})
+    header = osmium.io.Reader(str(path), osmium.osm.osm_entity_bits.NOTHING).header()
+    stamp = header.get("osmosis_replication_timestamp") or header.get("timestamp") or None
+    proc = (osmium.FileProcessor(str(path), osmium.osm.NODE | osmium.osm.WAY)
+            .with_locations().with_filter(osmium.filter.KeyFilter(*keys)))
+    out = []
+    for n, obj in enumerate(proc):
+        if check_abort and n % 1000 == 0:
+            check_abort()
+        t = {tag.k: tag.v for tag in obj.tags}
+        if not any(k in t and (not v or t[k] == v) for k, v in pairs):
+            continue
+        if only_with_website and not (t.get("website") or t.get("contact:website")):
+            continue
+        if obj.is_node():
+            if not obj.location.valid():
+                continue
+            lat, lon, el = obj.location.lat, obj.location.lon, {"type": "node"}
+        else:
+            locs = [nd.location for nd in obj.nodes if nd.location.valid()]
+            if not locs:
+                continue
+            lats, lons = [p.lat for p in locs], [p.lon for p in locs]
+            lat, lon = (min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2
+            el = {"type": "way", "center": {"lat": round(lat, 7), "lon": round(lon, 7)}}
+        if not inside(lat, lon):
+            continue
+        el.update({"id": obj.id, "tags": t})
+        if el["type"] == "node":
+            el.update({"lat": round(lat, 7), "lon": round(lon, 7)})
+        out.append(el)
+    out.sort(key=lambda e: (e["type"], e["id"]))
+    return out, stamp
+
+
 def normalise(el: dict) -> dict:
     t = el.get("tags") or {}
     lat = el.get("lat", (el.get("center") or {}).get("lat"))
@@ -121,7 +220,7 @@ def normalise(el: dict) -> dict:
 class Places(Actor):
     ENDPOINTS = ENDPOINTS
     name = "places"
-    version = "1.1.0"
+    version = "1.2.0"
     dataset_schema = {
         "fields": {"type": "object", "required": ["name", "category", "osmId", "osmUrl", "license", "lat", "lon"],
                    "properties": {
@@ -161,6 +260,9 @@ class Places(Actor):
             "maxResults": {"type": "integer", "default": 1000, "minimum": 1, "maximum": 20000},
             "endpoint": {"type": "string", "default": "",
                          "description": "An Overpass API instance that allows automated use"},
+            "osmFile": {"type": "string", "default": "", "maxLength": 200,
+                        "description": "Read a local extract instead of Overpass: file name (*.osm.pbf) "
+                                       "in the directory set by WW_SCRAPER_OSM_DIR"},
             "minIntervalSecs": MIN_INTERVAL,
             "redactPii": REDACT,
         },
@@ -171,6 +273,13 @@ class Places(Actor):
         tags = list(CATEGORIES.get(inp["category"], [])) + list(inp["tags"])
         if not tags:
             raise ValueError("choose a category or give at least one tag")
+        if inp["osmFile"].strip():
+            path = osm_file_path(inp["osmFile"].strip())
+            inside = area_test(inp)
+            ctx.set_status_message(f"reading {path.name}")
+            elements, stamp = read_osm_file(path, tags, inside, inp["onlyWithWebsite"], ctx.check_abort)
+            source = {"osmFile": path.name, "dataTimestamp": stamp, "matched": len(elements)}
+            return self._finish(ctx, inp, {"elements": elements[:inp["maxResults"]]}, source)
         query = build_query(tags, inp, inp["maxResults"])
         own = inp["endpoint"].strip()
         env = [e.strip() for e in os.environ.get(ENV_ENDPOINTS, "").split(",") if e.strip()]
@@ -215,6 +324,12 @@ class Places(Actor):
         remark = (data or {}).get("remark")
         if remark and "error" in remark.lower():
             raise RuntimeError(f"Overpass API: {remark[:300]}")
+        source = {"endpoint": endpoint, "query": query}
+        if remark:
+            source["remark"] = remark[:300]
+        return self._finish(ctx, inp, data, source)
+
+    def _finish(self, ctx, inp, data, source):
         items, seen = [], set()
         for el in (data or {}).get("elements", []):
             if not isinstance(el, dict) or (el.get("type"), el.get("id")) in seen:
@@ -231,7 +346,5 @@ class Places(Actor):
                    # personal data: masked unless redactPii is off (needs a legal basis)
                    "phonesMasked": bool(inp["redactPii"]),
                    "withOpeningHours": sum(1 for i in items if i["openingHours"]),
-                   "endpoint": endpoint, "attribution": ATTRIBUTION, "query": query}
-        if remark:
-            summary["remark"] = remark[:300]
+                   "attribution": ATTRIBUTION, **source}
         ctx.set_value("OUTPUT", summary)

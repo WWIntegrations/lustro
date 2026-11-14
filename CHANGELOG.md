@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `places` 1.2.0 and `lead-list` 1.1.0 read a local OpenStreetMap extract (`osmFile`) instead
+  of an Overpass server. The public instance was down for days; with a regional `.osm.pbf`
+  (for example a voivodeship from download.geofabrik.de, fetched by hand or by your own
+  script) the run needs no server, sends no request and gives the same records:
+  - `osmFile` is a file name inside the directory set by `WW_SCRAPER_OSM_DIR`, never a path:
+    a run started over the HTTP API or MCP cannot read other files. Without the setting the
+    option is off. Symlinks out of the directory are refused.
+  - Area: `lat` + `lon` + `radiusMeters`, or `bbox`. A city name needs its administrative
+    boundary and is refused with a file. Ways get the centre of their bounding box, as
+    Overpass reports it; relations are not read.
+  - `OUTPUT` names the file, its replication timestamp and how many places matched before
+    `maxResults`.
+  - Needs the optional `osmium` package: `pip install "ww-scraper[osm]"`.
+
+  Checked against the Overpass runs of 2026-11-13 (data of the same day): dentists with a
+  website within 8 km of Gdańsk 56 of 56 identical (ids, coordinates, websites), 3 s;
+  restaurants with a website within 8 km of Warsaw 585 of 586, 7 s from a 288 MB extract
+  (the one missing lies 8004 m from the centre, on the edge of the circle).
+
 - `media-collector` no longer fails silently. A run of every actor found it returning 0
   items with no warning: each source error was swallowed. Now:
   - `search(..., report={})` records per source what was found, what passed the live check,
