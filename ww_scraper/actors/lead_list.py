@@ -27,7 +27,7 @@ def _site_key(url: str) -> str:
 
 class LeadList(Actor):
     name = "lead-list"
-    version = "1.0.0"
+    version = "1.1.0"
     dataset_schema = {
         "fields": {"type": "object", "required": ["name", "category", "address", "website", "emails", "phones",
                                                   "socialProfiles", "source"],
@@ -71,6 +71,8 @@ class LeadList(Actor):
             "maxPagesPerSite": {"type": "integer", "default": 4, "minimum": 1, "maximum": 20},
             "endpoint": {"type": "string", "default": "",
                          "description": "An Overpass API instance that allows automated use"},
+            "osmFile": {"type": "string", "default": "", "maxLength": 200,
+                        "description": "Local extract (*.osm.pbf in WW_SCRAPER_OSM_DIR) instead of Overpass"},
             "minIntervalSecs": MIN_INTERVAL,
             "redactPii": REDACT,
         },
@@ -78,7 +80,8 @@ class LeadList(Actor):
 
     def run(self, ctx):
         inp = ctx.input
-        area = {k: inp[k] for k in ("category", "tags", "city", "radiusMeters", "endpoint") if k in inp}
+        area = {k: inp[k] for k in ("category", "tags", "city", "radiusMeters", "endpoint", "osmFile")
+                if k in inp}
         area.update({k: inp[k] for k in ("lat", "lon", "bbox") if inp.get(k) is not None})
         common = {"minIntervalSecs": inp["minIntervalSecs"], "redactPii": inp["redactPii"]}
         ctx.set_status_message("reading places from OpenStreetMap")

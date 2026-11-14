@@ -161,7 +161,7 @@ metadata with the standard library only (`html.parser`).
 | `change-monitor`          | pages that are new, changed or removed (404/410) since the previous run with the same `monitorName`; pages seen before are asked for with ETag / Last-Modified, so an unchanged page that answers 304 is not downloaded again; the snapshot keeps hashes, titles, word counts, validators and link URLs, not page text |
 | `feed-reader`             | RSS / Atom feeds a page advertises (or feed URLs given directly) and their entries |
 | `job-postings`            | open positions from the public Greenhouse and Lever job-board APIs, Ashby board pages and schema.org `JobPosting` data on any careers page: title, company, location, remote, salary, department, posted date, apply link; keyword, location and remote filters; `watchName` returns only postings new since the last run |
-| `places`                  | businesses by category (32 ready ones) or raw OSM tags, in a city, a radius or a box, from OpenStreetMap via public Overpass instances that allow API use (with fallback): address, coordinates, website, phone, opening hours, with the ODbL attribution in every record |
+| `places`                  | businesses by category (32 ready ones) or raw OSM tags, in a city, a radius or a box, from OpenStreetMap via public Overpass instances that allow API use, or from a local `.osm.pbf` extract (`osmFile`): address, coordinates, website, phone, opening hours, with the ODbL attribution in every record |
 | `product-catalog`         | products from any shop's schema.org data (Product, ProductGroup variants, AggregateOffer, Open Graph fallback): price, currency, availability, GTIN, SKU, brand, rating; duplicates removed by GTIN or SKU; records a merchant feed would reject are flagged |
 | `contact-details`         | the e-mails, phones, social profiles, address and VAT id a company publishes on its home, contact, about and imprint pages; role addresses (info@, biuro@) kept, personal ones masked unless `redactPii` is off |
 | `lead-list`               | `places` then `contact-details` on every place with a website, joined into one record per business: name, category, address, website, role e-mails and phones, social profiles, source (OSM link, ODbL attribution, pages read); the masking of both actors is kept |
@@ -209,7 +209,9 @@ built so they never need to break a rule to work:
   any careers page with Google for Jobs markup.
 - **Places** read OpenStreetMap, open data you may republish, instead of a map service whose
   terms forbid extraction. The main Overpass server disallows `/api/` in robots.txt, so the
-  default endpoint is a public instance that does not; any instance can be configured.
+  default endpoint is a public instance that does not; any instance can be configured. With
+  no server at all, `osmFile` reads a regional extract you downloaded (`.osm.pbf` in
+  `WW_SCRAPER_OSM_DIR`, optional `osmium` package): same records, no request sent.
 - **Products** read the structured data shops publish for search engines, so there are no
   CSS selectors to maintain and a redesign does not break the scraper.
 - **Contacts** apply a GDPR rule per field instead of all or nothing: an address that names a
@@ -218,6 +220,7 @@ built so they never need to break a rule to work:
 ```bash
 ww-scraper run job-postings --input '{"boards": ["greenhouse:<board>", "lever:<company>", "ashby:<org>"], "keywords": ["python"], "remoteOnly": true, "watchName": "my-search"}'
 ww-scraper run places --input '{"category": "dentist", "city": "Gdańsk"}'
+WW_SCRAPER_OSM_DIR=~/osm ww-scraper run places --input '{"category": "dentist", "lat": 54.372, "lon": 18.638, "radiusMeters": 8000, "osmFile": "pomorskie-latest.osm.pbf"}'
 ww-scraper run product-catalog --input '{"startUrls": ["https://shop.example/"], "maxPages": 500}'
 ww-scraper run contact-details --input '{"startUrls": ["https://company.example/"]}'
 ww-scraper run lead-list --input '{"category": "dentist", "city": "Gdańsk", "maxResults": 100}'

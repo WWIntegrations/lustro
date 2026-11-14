@@ -13,6 +13,10 @@ authors = [{ name = "Wiktor Wojtarowicz" }]
 keywords = ["scraping", "crawler", "robots-txt", "seo", "llms-txt", "collector", "openverse", "compliant"]
 dependencies = ["requests>=2.31", "Pillow>=10.0"]
 
+[project.optional-dependencies]
+# places/lead-list osmFile: read a local OpenStreetMap extract instead of an Overpass server
+osm = ["osmium>=4.0"]
+
 [project.scripts]
 ww-scraper = "ww_scraper.__main__:main"
 
