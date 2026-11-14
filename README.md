@@ -430,9 +430,11 @@ export WW_SCRAPER_CONTACT="https://github.com/<you>/ww-scraper"
 
 Residential/rotating proxies, identity rotation to defeat rate limits, CAPTCHA solving,
 headless-browser anti-bot evasion, ignoring robots.txt (there is no switch for it),
-collecting from sources that forbid automated access, multi-tenant hosting, or
-scraping on behalf of an MCP/agent tool. These are out of scope **by design**: the point is a collector you can run in
-the open, that respects the sites it touches.
+collecting from sources that forbid automated access, multi-tenant hosting, or an
+always-on agent endpoint. These are out of scope **by design**: the point is a collector you
+can run in the open, that respects the sites it touches. The MCP server is the one agent
+surface, and it is opt-in, local (stdio, no port), capped per run, limited by `--allow-host`
+when given, and marks everything it returns from pages as untrusted.
 
 ### Known limits
 
