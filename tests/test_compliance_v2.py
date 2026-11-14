@@ -208,3 +208,9 @@ def test_network_reason_names_the_tls_problem():
                                      "Hostname mismatch, certificate is not valid for 'shop.pl'")
     assert network_reason(e) == "SSLError: certificate is for another host name"
     assert network_reason(requests.ConnectTimeout("x")) == "ConnectTimeout"
+
+
+def test_server_text_cannot_inject_terminal_escapes():
+    from ww_scraper.actor import printable
+    assert printable("cloud\x1b[2J\x1b]0;x\x07flare‮") == "cloud?[2J?]0;x?flare?"
+    assert printable("line one\nline two") == "line one\nline two"

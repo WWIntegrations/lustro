@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Fixes from a review of the measurement fixes:
+
+- Run log lines and stored failure reasons keep only printable text: an escape sequence
+  or bidi override in a `Server` header or a redirect target can no longer reach the
+  terminal of whoever tails the log. The robots.txt `server` field keeps printable ASCII.
+- `places`: the status probe URL is built from URL parts, so an endpoint without a path or
+  with a query string probes the right page; the busy pause can be aborted; `HTTPS://`
+  endpoints are accepted.
+- `sitemap`: the queue of index entries never grows past what `maxSitemaps` can fetch (a
+  hostile index with a million entries no longer fills memory), a run lists at most
+  2,000,000 URLs across all origins, and `truncated` is true only when something was
+  actually left out.
 - `places` checks each Overpass instance's `/api/status` (10 s) before the query. A server
   whose web front answers while the backend hangs used to cost two 75 s timeouts and five
   minutes in all; it now fails in about 10 s with a message saying what to do.

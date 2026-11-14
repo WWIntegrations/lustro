@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from ..actor import MIN_INTERVAL, REDACT, Actor
 from ..schema import STR_OR_NULL
@@ -54,6 +54,15 @@ def _q(value: str) -> str:
 
 
 _WEBSITE = '[~"^(website|contact:website)$"~"."]'
+
+
+def status_url_of(endpoint: str) -> str:
+    """The Overpass status page next to an interpreter URL, by URL parts, not string cuts:
+    https://host/api/interpreter -> https://host/api/status; a bare host gets /api/status."""
+    parts = urlsplit(endpoint)
+    path = parts.path.rstrip("/")
+    base = path.rsplit("/", 1)[0] if path.endswith("interpreter") else "/api"
+    return urlunsplit((parts.scheme, parts.netloc, (base or "/api") + "/status", "", ""))
 
 
 def build_query(tags: list, inp: dict, limit: int) -> str:
@@ -166,7 +175,7 @@ class Places(Actor):
         own = inp["endpoint"].strip()
         env = [e.strip() for e in os.environ.get(ENV_ENDPOINTS, "").split(",") if e.strip()]
         for e in ([own] if own else []) + env:
-            if not e.startswith("https://") and not ctx.allow_loopback:
+            if not e.lower().startswith("https://") and not ctx.allow_loopback:
                 raise ValueError(f"endpoint must be https: {e}")
         endpoints = [own] if own else (env or list(self.ENDPOINTS))
         ctx.log.info(f"places: Overpass query\n{query}")
@@ -180,7 +189,7 @@ class Places(Actor):
             ctx.check_abort()
             # a server whose web front answers while the Overpass backend hangs used to cost
             # two 75 s timeouts; its status page tells in seconds
-            status_url = endpoint.rsplit("/", 1)[0] + "/status"
+            status_url = status_url_of(endpoint)
             st = probe.fetch(status_url, accept_types=None, read_body=False)
             if not st.ok:
                 err = f"not answering ({status_url}: {st.error or 'HTTP ' + str(st.status)})"
@@ -190,7 +199,9 @@ class Places(Actor):
             data, err = get_json(crawler, f"{endpoint}?data={quote(query)}")
             if err and ("HTTP 429" in err or "HTTP 504" in err):
                 ctx.log.info(f"{endpoint.split('/')[2]} is busy ({err}); trying again in {BUSY_PAUSE} s")
-                time.sleep(BUSY_PAUSE)
+                for _ in range(BUSY_PAUSE):           # an abort must not wait out the pause
+                    ctx.check_abort()
+                    time.sleep(1)
                 data, err = get_json(crawler, f"{endpoint}?data={quote(query)}")
             if not err:
                 break
