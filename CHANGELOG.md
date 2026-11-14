@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- `product-catalog` 1.2.0, measured by a new extraction bench (`bench/extract`: 12 encodings,
+  known answers, 71% of fields right before, 100% after):
+  - prices in local formats: `1.299,00`, `1 299,00`, `1'299.50`, `12.345.678,90`, and with a
+    currency sign or code (`49,99 zł`, `$49.99`, `EUR 1 299,00`). They used to come out a
+    thousand times too small or as no price at all. A lone dot stays a decimal mark, as
+    schema.org writes prices.
+  - `@graph` nodes joined by `@id`: an Offer or Brand kept as its own node is read into the
+    product (one level, so a reference cycle cannot recurse).
+  - microdata (`itemscope`/`itemprop`) when a page has no JSON-LD product.
+  - availability as one schema.org name whatever the spelling (`in stock`, `in_stock`,
+    `http://schema.org/InStock`); unknown names are kept as written.
+  - entities in JSON-LD text decoded (`Kawa &amp; herbata`), image and product URLs made
+    absolute, non-http(s) image URLs dropped; Open Graph `product:retailer_item_id` and
+    `product:brand` read as SKU and brand.
+- JSON-LD with a raw newline or tab inside a string parses (it used to count as invalid and
+  lose the whole block).
+- Pages expose `microdata`: top-level items in the shape of JSON-LD, bounded to 50 items,
+  2,000 properties and 2,000 characters per value. `structured-data` returns them and counts
+  `withMicrodata`; `seo-audit` lists `microdataTypes` and no longer reports "no structured
+  data" for a page that has microdata.
+- `bench/crawl` measured again on 0.9.0: 508 downloads and 0 duplicate items against Crawlee's
+  2,500 and 2,000, 1.5 s against 5.9 s.
+
 - Rendering: a page whose raw HTML looks script-built and that gains no text from
   `"render": true` (a cold browser can spend its time budget before the page's scripts
   run) is rendered once more with three times the wait. If it is still empty it is counted

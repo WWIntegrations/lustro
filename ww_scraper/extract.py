@@ -4,7 +4,8 @@ parse_html(html, base_url) -> Page with:
   markdown   main content as Markdown (nav/footer/aside/script/style/forms dropped;
              headings, paragraphs, lists, links, code, tables, quotes, images kept)
   title, description, canonical, lang, robots, og (dict), headings (h1-h3),
-  jsonld_types, hreflang, links, images, word_count, noindex, nofollow
+  jsonld_types, hreflang, links, images, word_count, noindex, nofollow,
+  microdata  (schema.org items marked up with itemscope/itemprop, in the shape of JSON-LD)
 """
 from __future__ import annotations
 
@@ -30,6 +31,10 @@ FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/feed+j
 MAX_JSONLD_BLOCKS = 20
 MAX_JSONLD_CHARS = 200_000
 MAX_CONTACT_TEXT = 5000
+MAX_MICRODATA_ITEMS = 50
+MAX_MICRODATA_PROPS = 2000          # per page, across all items
+MAX_MICRODATA_VALUE = 2000          # characters per property value
+MAX_MICRODATA_VALUES = 50           # values kept for one repeated property
 # Elements deeper than this are not nested further: their content joins the element at the
 # limit. Real pages stay far below it; a hostile page nested thousands deep would otherwise
 # exhaust Python's recursion limit in every tree walk.
@@ -423,6 +428,7 @@ class Page:
     jsonld_types: list = field(default_factory=list)
     jsonld_errors: int = 0
     jsonld: list = field(default_factory=list)
+    microdata: list = field(default_factory=list)
     twitter: dict = field(default_factory=dict)
     feeds: list = field(default_factory=list)
     hreflang: list = field(default_factory=list)
@@ -469,6 +475,67 @@ def _unescape_left(s: str) -> str:
     return _html.unescape(s) if s and _ENTITY.search(s) else s
 
 
+# --- microdata --------------------------------------------------------------------------
+
+# elements whose property value is a URL attribute (HTML Living Standard, microdata section)
+_MD_URL_ATTR = {"a": "href", "area": "href", "link": "href", "img": "src", "audio": "src",
+                "video": "src", "source": "src", "embed": "src", "iframe": "src", "track": "src",
+                "object": "data"}
+
+
+def _md_value(n: Node, base: str) -> str:
+    a = n.attrs
+    if "content" in a:                          # <meta content>, and spans that carry one
+        return a["content"].strip()[:MAX_MICRODATA_VALUE]
+    attr = _MD_URL_ATTR.get(n.tag)
+    if attr:
+        return _abs(base, a.get(attr))[:MAX_MICRODATA_VALUE]
+    if n.tag in ("data", "meter") and "value" in a:
+        return a["value"].strip()[:MAX_MICRODATA_VALUE]
+    if n.tag == "time" and a.get("datetime"):
+        return a["datetime"].strip()[:MAX_MICRODATA_VALUE]
+    return _WS.sub(" ", n.text()).strip()[:MAX_MICRODATA_VALUE]
+
+
+def _md_item(node: Node, base: str, budget: list) -> dict:
+    """One itemscope element as a JSON-LD-shaped dict: {"@type": "Product", "name": ...}.
+    Properties of nested items belong to those items, not to this one."""
+    types = node.attrs.get("itemtype", "").split()
+    item = {"@type": types[0].rstrip("/").rsplit("/", 1)[-1]} if types else {}
+    stack = list(reversed(node.children))
+    while stack and budget[0] > 0:
+        c = stack.pop()
+        if not isinstance(c, Node):
+            continue
+        props = c.attrs.get("itemprop", "").split()
+        scoped = "itemscope" in c.attrs
+        if props:
+            budget[0] -= 1
+            v = _md_item(c, base, budget) if scoped else _md_value(c, base)
+            for name in props[:5]:
+                if name not in item:
+                    item[name] = v
+                elif isinstance(item[name], list):
+                    if len(item[name]) < MAX_MICRODATA_VALUES:
+                        item[name].append(v)
+                else:
+                    item[name] = [item[name], v]
+        if not scoped:
+            stack.extend(reversed(c.children))
+    return item
+
+
+def microdata(root: Node, base: str) -> list:
+    """Top-level microdata items (itemscope elements that are not a property of another)."""
+    out, budget = [], [MAX_MICRODATA_PROPS]
+    for n in root.iter():
+        if "itemscope" in n.attrs and "itemprop" not in n.attrs:
+            if len(out) >= MAX_MICRODATA_ITEMS or budget[0] <= 0:
+                break
+            out.append(_md_item(n, base, budget))
+    return out
+
+
 def parse_html(html: str, base_url: str) -> Page:
     root = build_tree(html or "")
     page = Page(url=base_url)
@@ -480,8 +547,11 @@ def parse_html(html: str, base_url: str) -> Page:
     if html_node is not None:
         page.lang = html_node.attrs.get("lang", "").strip()
     page.headings = {"h1": [], "h2": [], "h3": []}
+    has_microdata = False
     for n in root.iter():
         t, a = n.tag, n.attrs
+        if "itemscope" in a:
+            has_microdata = True
         if t == "title" and not page.title:
             page.title = _WS.sub(" ", n.text()).strip()
         elif t == "meta":
@@ -514,7 +584,9 @@ def parse_html(html: str, base_url: str) -> Page:
         elif t == "script" and (a.get("type") or "").lower() == "application/ld+json":
             try:
                 raw = n.text()
-                obj = json.loads(raw)
+                # strict=False: a raw newline or tab inside a string (CMS descriptions pasted
+                # into JSON-LD) is read the way browsers and search engines read it
+                obj = json.loads(raw, strict=False)
                 _jsonld_types(obj, page.jsonld_types)
                 if len(page.jsonld) < MAX_JSONLD_BLOCKS and len(raw) <= MAX_JSONLD_CHARS:
                     page.jsonld.append(obj)
@@ -540,6 +612,8 @@ def parse_html(html: str, base_url: str) -> Page:
     page.title = _unescape_left(page.title)
     page.description = _unescape_left(page.description)
     page.site_name = page.og.get("og:site_name", "")
+    if has_microdata:
+        page.microdata = microdata(root, base)
     page.markdown = to_markdown(root, base)
     page.word_count = len(re.findall(r"\w+", re.sub(r"\]\([^)]*\)", "]", page.markdown)))
     return page

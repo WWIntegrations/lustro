@@ -42,6 +42,7 @@ def audit_page(res, doc) -> dict:
         "lang": doc.lang, "hreflang": doc.hreflang,
         "og": {k: doc.og.get(k, "") for k in ("og:title", "og:description", "og:image", "og:type")},
         "jsonldTypes": doc.jsonld_types,
+        "microdataTypes": sorted({i.get("@type") for i in doc.microdata if i.get("@type")}),
         "imagesTotal": len(doc.images), "imagesMissingAlt": alt_missing,
         "wordCount": doc.word_count,
     })
@@ -72,8 +73,8 @@ def audit_page(res, doc) -> dict:
     for k in ("og:title", "og:description", "og:image"):
         if not doc.og.get(k):
             add("info", "og-missing", f"missing {k}")
-    if not doc.jsonld_types:
-        add("info", "jsonld-missing", "no JSON-LD structured data")
+    if not doc.jsonld_types and not doc.microdata:
+        add("info", "jsonld-missing", "no JSON-LD or microdata structured data")
     if doc.jsonld_errors:
         add("warning", "jsonld-invalid", f"{doc.jsonld_errors} JSON-LD block(s) failed to parse")
     if alt_missing:

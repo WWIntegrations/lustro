@@ -41,7 +41,7 @@ def _types(obj) -> list:
 class StructuredData(Actor):
     name = "structured-data"
     title = "Structured Data Extractor"
-    description = "Extract JSON-LD, Open Graph and Twitter card data from each page."
+    description = "Extract JSON-LD, microdata, Open Graph and Twitter card data from each page."
     input_schema = {
         "type": "object",
         "required": ["startUrls"],
@@ -63,7 +63,7 @@ class StructuredData(Actor):
 
     def run(self, ctx):
         inp = ctx.input
-        summary = {"pages": 0, "withJsonLd": 0, "jsonLdErrors": 0, "types": {}}
+        summary = {"pages": 0, "withJsonLd": 0, "withMicrodata": 0, "jsonLdErrors": 0, "types": {}}
 
         def on_page(res, req, doc):
             if doc is None:
@@ -81,11 +81,12 @@ class StructuredData(Actor):
                 issues.append(f"{doc.jsonld_errors} JSON-LD block(s) are not valid JSON")
             summary["pages"] += 1
             summary["withJsonLd"] += bool(objects)
+            summary["withMicrodata"] += bool(doc.microdata)
             summary["jsonLdErrors"] += doc.jsonld_errors
-            if inp["onlyWithData"] and not (objects or doc.og or doc.twitter):
+            if inp["onlyWithData"] and not (objects or doc.microdata or doc.og or doc.twitter):
                 return
             ctx.push_data({"url": req["url"], "finalUrl": res.final_url, "title": doc.title,
-                           "jsonLd": objects, "jsonLdTypes": doc.jsonld_types,
+                           "jsonLd": objects, "jsonLdTypes": doc.jsonld_types, "microdata": doc.microdata,
                            "openGraph": doc.og, "twitter": doc.twitter, "issues": issues})
 
         ctx.crawler().crawl(inp["startUrls"], on_page, max_pages=inp["maxPages"],

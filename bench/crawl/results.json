@@ -4,7 +4,7 @@
     "node": "v22.23.4",
     "os": "macOS-26.1",
     "cpu": "arm64",
-    "ww_scraper": "0.7.0",
+    "ww_scraper": "0.9.0",
     "crawlee": "3.18.2",
     "site_pages": 500,
     "server_latency_secs": 0.01
@@ -25,9 +25,9 @@
       "items": 55,
       "unique_page_items": 53,
       "duplicate_items": 0,
-      "wall_secs": 60.14,
-      "cpu_secs": 0.22,
-      "peak_rss_mb": 33.1
+      "wall_secs": 60.13,
+      "cpu_secs": 0.31,
+      "peak_rss_mb": 35.4
     },
     "Crawlee CheerioCrawler": {
       "requests": 65,
@@ -39,34 +39,34 @@
       "robots_disallowed_fetched": 5,
       "nofollow_only_fetched": 0,
       "peak_concurrent_requests": 10,
-      "server_span_secs": 0.2,
-      "requests_per_sec": 325.0,
+      "server_span_secs": 0.14,
+      "requests_per_sec": 453.5,
       "items": 60,
       "unique_page_items": 53,
       "duplicate_items": 0,
-      "wall_secs": 2.28,
-      "cpu_secs": 1.26,
-      "peak_rss_mb": 180.7
+      "wall_secs": 1.93,
+      "cpu_secs": 0.97,
+      "peak_rss_mb": 178.0
     }
   },
   "matched (10 in flight, robots on, whole site)": {
     "ww-scraper": {
-      "requests": 1013,
-      "page_responses": 510,
+      "requests": 1011,
+      "page_responses": 508,
       "unique_pages": 500,
       "coverage": 1.0,
-      "duplicate_page_fetches": 10,
+      "duplicate_page_fetches": 8,
       "redirect_hops": 500,
       "robots_disallowed_fetched": 0,
       "nofollow_only_fetched": 0,
       "peak_concurrent_requests": 10,
-      "server_span_secs": 1.51,
-      "requests_per_sec": 668.4,
+      "server_span_secs": 1.42,
+      "requests_per_sec": 712.8,
       "items": 502,
       "unique_page_items": 500,
       "duplicate_items": 0,
-      "wall_secs": 1.63,
-      "cpu_secs": 0.88,
+      "wall_secs": 1.51,
+      "cpu_secs": 0.73,
       "peak_rss_mb": 34.9,
       "runs": 3
     },
@@ -80,14 +80,14 @@
       "robots_disallowed_fetched": 0,
       "nofollow_only_fetched": 10,
       "peak_concurrent_requests": 10,
-      "server_span_secs": 6.41,
-      "requests_per_sec": 469.7,
+      "server_span_secs": 4.41,
+      "requests_per_sec": 683.8,
       "items": 2512,
       "unique_page_items": 500,
       "duplicate_items": 2000,
-      "wall_secs": 8.31,
-      "cpu_secs": 7.77,
-      "peak_rss_mb": 388.5,
+      "wall_secs": 5.86,
+      "cpu_secs": 5.33,
+      "peak_rss_mb": 390.1,
       "runs": 3
     }
   }

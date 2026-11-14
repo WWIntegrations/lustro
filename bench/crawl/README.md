@@ -13,7 +13,7 @@ carry `<link rel="canonical" href="/p/<n>">`, as real sites do. It also has trap
 links into `/admin/` (disallowed in robots.txt) and ten pages linked only from a page marked
 `<meta name="robots" content="nofollow">`. Every response is delayed 10 ms.
 
-Measured on 2026-11-12: ww-scraper 0.7.0, Crawlee 3.18.2 (`CheerioCrawler`), Node 22.23,
+Measured on 2026-11-14: ww-scraper 0.9.0, Crawlee 3.18.2 (`CheerioCrawler`), Node 22.23,
 Python 3.12, macOS on Apple silicon. Raw output: [`results.json`](results.json). Time,
 CPU and memory are the median of 3 runs; counts are the same in every run.
 
@@ -21,18 +21,18 @@ CPU and memory are the median of 3 runs; counts are the same in every run.
 
 Both tools with 10 requests in flight, no delay between requests to the host, robots.txt on.
 
-| | ww-scraper 0.7.0 | Crawlee 3.18.2 |
+| | ww-scraper 0.9.0 | Crawlee 3.18.2 |
 |---|---|---|
 | Pages found (of 500) | 500 | 500 |
-| Page downloads | **510** | 2,500 |
-| ... of which the same page again | **10** | 2,000 |
+| Page downloads | **508** | 2,500 |
+| ... of which the same page again | **8** | 2,000 |
 | Duplicate items handed to your code | **0** | 2,000 |
-| Requests to the server in total | **1,013** | 3,013 |
+| Requests to the server in total | **1,011** | 3,013 |
 | Pages linked only from a `nofollow` page fetched | **0** | 10 |
 | Pages disallowed by robots.txt fetched | 0 | 0 |
-| Wall time | **1.63 s** | 8.31 s |
-| CPU time | **0.88 s** | 7.77 s |
-| Peak memory | **35 MB** | 389 MB |
+| Wall time | **1.51 s** | 5.86 s |
+| CPU time | **0.73 s** | 5.33 s |
+| Peak memory | **35 MB** | 390 MB |
 
 Why the downloads differ:
 
@@ -45,7 +45,7 @@ Why the downloads differ:
   variants is a separate download and a separate item.
 - A redirect to a page already crawled stops after the first hop in ww-scraper. Crawlee
   follows it and downloads the page again.
-- The 10 duplicate downloads in ww-scraper are the learning phase: variants fetched before 3
+- The 8 duplicate downloads in ww-scraper are the learning phase: variants fetched before 3
   pages had confirmed a rule, or already in flight. Each was recognised by its canonical and
   not passed to your code.
 
@@ -53,9 +53,9 @@ Why the downloads differ:
 
 Each tool as shipped (ww-scraper with only the loopback test switch on).
 
-| | ww-scraper 0.7.0 | Crawlee 3.18.2 |
+| | ww-scraper 0.9.0 | Crawlee 3.18.2 |
 |---|---|---|
-| Requests per second to the one host | **1.0** | 325 |
+| Requests per second to the one host | **1.0** | 454 |
 | Requests in flight at once | **1** | 10 |
 | Pages disallowed by robots.txt fetched | **0** | 5 |
 
@@ -65,6 +65,10 @@ on its own; on a real site with a slower server it goes well past 10 in flight. 
 makes Crawlee much faster on one host when nobody sets a limit, and ww-scraper the one that
 does not need a limit to be safe. With the same budget (table above) ww-scraper was the
 faster of the two here.
+
+The first measurement, on 2026-11-12 with ww-scraper 0.7.0, gave the same counts within
+two downloads (510 and 10 again) and 1.63 s, 0.88 s CPU, 35 MB against Crawlee's 8.31 s,
+7.77 s and 389 MB; Crawlee's wall and CPU time vary most between days on the same machine.
 
 ## What it does not say
 

@@ -1,0 +1,166 @@
+{
+  "ww_scraper": "0.9.0",
+  "pages": 300,
+  "seed": 2026,
+  "byEncoding": {
+    "jsonld": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "jsonld-graph": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "price-locale": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "price-symbol": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "jsonld-raw-text": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "jsonld-entities": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "relative-image": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "microdata": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "microdata-text": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "opengraph": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "product-group": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 75,
+      "found": 75,
+      "spurious": 0,
+      "fields": 750,
+      "fieldsRight": 750
+    },
+    "aggregate-offer": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    }
+  },
+  "byField": {
+    "name": {
+      "checked": 350,
+      "right": 350
+    },
+    "price": {
+      "checked": 350,
+      "right": 350
+    },
+    "lowPrice": {
+      "checked": 350,
+      "right": 350
+    },
+    "highPrice": {
+      "checked": 350,
+      "right": 350
+    },
+    "currency": {
+      "checked": 350,
+      "right": 350
+    },
+    "availability": {
+      "checked": 350,
+      "right": 350
+    },
+    "sku": {
+      "checked": 350,
+      "right": 350
+    },
+    "gtin": {
+      "checked": 350,
+      "right": 350
+    },
+    "brand": {
+      "checked": 350,
+      "right": 350
+    },
+    "image": {
+      "checked": 350,
+      "right": 350
+    }
+  },
+  "totals": {
+    "pages": 300,
+    "pagesExact": 300,
+    "expected": 350,
+    "found": 350,
+    "spurious": 0,
+    "fields": 3500,
+    "fieldsRight": 3500
+  }
+}
