@@ -1,6 +1,6 @@
 """Extraction benchmark: product-catalog's parser against known answers.
 
-Builds the corpus in corpus.py (12 encodings x 25 pages by default), runs the same parser the
+Builds the corpus in corpus.py (14 encodings x 25 pages by default), runs the same parser the
 product-catalog actor runs on each page (parse_html + products_on_page), and compares each
 field with the answer the generator wrote. Prints a table per encoding and per field, and
 with --json writes the raw counts.
@@ -43,13 +43,13 @@ def score(pages):
     for pg in pages:
         e = by_enc[pg["encoding"]]
         got = products_on_page(parse_html(pg["html"], pg["url"]), pg["url"])
-        by_sku = {g.get("sku"): g for g in got}
+        by_sku = {g.get("sku"): g for g in got if g.get("sku")}
         e["pages"] += 1
         e["expected"] += len(pg["truth"])
         exact = len(got) == len(pg["truth"])
         matched = 0
         for i, want in enumerate(pg["truth"]):
-            g = by_sku.get(want["sku"]) or (got[i] if len(got) == len(pg["truth"]) else None)
+            g = (by_sku.get(want["sku"]) if want["sku"] else None) or (got[i] if len(got) == len(pg["truth"]) else None)
             if g is None:
                 exact = False
                 e["fields"] += len(FIELDS)

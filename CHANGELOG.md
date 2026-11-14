@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `product-catalog` 1.3.0, from a check on 25 live shops (`bench/extract/live-check.md`:
+  product data from 6, no extracted price wrong):
+  - `priceSpecification` as a list (WooCommerce) gives the currency too, and a crossed-out
+    `StrikethroughPrice` (or list price, MSRP) is never taken as the selling price.
+  - a listing page keeps every product: products without SKU, GTIN or a URL of their own are
+    told apart by name instead of sharing the page URL as one dedupe key.
+  - a category written as HTML links is text.
+- microdata: a text property on a link (`<a href="/p/1" itemprop="name">Laptop</a>`) reads the
+  link text; URL properties (`url`, `image`, `availability`, ...) still read the href. A name
+  cut by the card (`Asus VivoBook...`) is completed from the link's `title`.
+- `bench/extract`: 14 encodings (new: `price-spec-list`, `microdata-listing`), 350 pages.
+
 - `product-catalog` 1.2.0, measured by a new extraction bench (`bench/extract`: 12 encodings,
   known answers, 71% of fields right before, 100% after):
   - prices in local formats: `1.299,00`, `1 299,00`, `1'299.50`, `12.345.678,90`, and with a

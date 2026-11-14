@@ -1,6 +1,6 @@
 {
   "ww_scraper": "0.9.0",
-  "pages": 300,
+  "pages": 350,
   "seed": 2026,
   "byEncoding": {
     "jsonld": {
@@ -31,6 +31,15 @@
       "fieldsRight": 250
     },
     "price-symbol": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 25,
+      "found": 25,
+      "spurious": 0,
+      "fields": 250,
+      "fieldsRight": 250
+    },
+    "price-spec-list": {
       "pages": 25,
       "pagesExact": 25,
       "expected": 25,
@@ -84,6 +93,15 @@
       "fields": 250,
       "fieldsRight": 250
     },
+    "microdata-listing": {
+      "pages": 25,
+      "pagesExact": 25,
+      "expected": 75,
+      "found": 75,
+      "spurious": 0,
+      "fields": 750,
+      "fieldsRight": 750
+    },
     "opengraph": {
       "pages": 25,
       "pagesExact": 25,
@@ -114,53 +132,53 @@
   },
   "byField": {
     "name": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "price": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "lowPrice": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "highPrice": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "currency": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "availability": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "sku": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "gtin": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "brand": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     },
     "image": {
-      "checked": 350,
-      "right": 350
+      "checked": 450,
+      "right": 450
     }
   },
   "totals": {
-    "pages": 300,
-    "pagesExact": 300,
-    "expected": 350,
-    "found": 350,
+    "pages": 350,
+    "pagesExact": 350,
+    "expected": 450,
+    "found": 450,
     "spurious": 0,
-    "fields": 3500,
-    "fieldsRight": 3500
+    "fields": 4500,
+    "fieldsRight": 4500
   }
 }

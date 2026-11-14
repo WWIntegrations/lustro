@@ -483,11 +483,34 @@ _MD_URL_ATTR = {"a": "href", "area": "href", "link": "href", "img": "src", "audi
                 "object": "data"}
 
 
-def _md_value(n: Node, base: str) -> str:
+# Properties whose value is a URL. On <a> and <area> the HTML standard makes every property
+# value the href, but shops write <a href="/p/1" itemprop="name">Laptop</a> and mean the text;
+# a property not in this list (and not ending in "Url") reads the link text when there is one.
+_MD_URL_PROPS = {"url", "image", "logo", "photo", "sameas", "contenturl", "thumbnailurl", "embedurl",
+                 "availability", "itemcondition", "pricetype", "additionaltype", "mainentityofpage",
+                 "hasmap", "downloadurl", "installurl", "coderepository", "license", "significantlink",
+                 "relatedlink", "acceptedpaymentmethod", "businessfunction", "deliverymethod",
+                 "itemavailability", "audio", "video", "trailer", "screenshot", "map"}
+
+
+def _md_url_prop(names) -> bool:
+    return any(x.lower() in _MD_URL_PROPS or x.lower().endswith("url") for x in names)
+
+
+def _md_value(n: Node, base: str, names=()) -> str:
     a = n.attrs
     if "content" in a:                          # <meta content>, and spans that carry one
         return a["content"].strip()[:MAX_MICRODATA_VALUE]
     attr = _MD_URL_ATTR.get(n.tag)
+    if attr and n.tag in ("a", "area") and names and not _md_url_prop(names):
+        text = _WS.sub(" ", n.text()).strip()
+        if text:
+            # listing cards cut long names ("Asus VivoBook...") and keep the whole one in title
+            title = _WS.sub(" ", a.get("title") or "").strip()
+            stem = text.rstrip(".\u2026 ")
+            if title and stem and text != stem and title.startswith(stem) and len(title) > len(stem):
+                text = title
+            return text[:MAX_MICRODATA_VALUE]
     if attr:
         return _abs(base, a.get(attr))[:MAX_MICRODATA_VALUE]
     if n.tag in ("data", "meter") and "value" in a:
@@ -511,7 +534,7 @@ def _md_item(node: Node, base: str, budget: list) -> dict:
         scoped = "itemscope" in c.attrs
         if props:
             budget[0] -= 1
-            v = _md_item(c, base, budget) if scoped else _md_value(c, base)
+            v = _md_item(c, base, budget) if scoped else _md_value(c, base, props)
             for name in props[:5]:
                 if name not in item:
                     item[name] = v

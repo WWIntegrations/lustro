@@ -112,12 +112,14 @@ downloaded 2,500 pages, handed over 2,000 duplicates, followed links from a `nof
 and took 5.9 s and 390 MB. ww-scraper learns from each site's `rel=canonical` which URL
 variants are the same page.
 
-Product extraction is measured against known answers on 300 generated product pages in 12
+Product extraction is measured against known answers on 350 generated product pages in 14
 encodings shops publish ([bench/extract](bench/extract/README.md)): JSON-LD with `@graph`
 references, prices written as `1.299,00 zł` or `$49.99`, raw newlines inside JSON strings,
 microdata only, Open Graph tags only, ProductGroup variants. Before the fixes that bench
 led to, `product-catalog` got 71% of fields right and found no product on 75 of the pages;
-now it gets every field right on all 300, and on 3,600 more pages from three other seeds.
+now it gets every field right on all 350, and on 4,200 more pages from three other seeds.
+On 25 live shops ([live check](bench/extract/live-check.md)) 6 served product data to a polite
+crawler, and none of the 48 prices that could be checked against the page was wrong.
 
 ## Platform primitives
 

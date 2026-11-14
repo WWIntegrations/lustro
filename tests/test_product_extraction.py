@@ -170,3 +170,72 @@ def test_ids_no_url_parser_accepts_do_not_break_the_page():
                               {"@type": "Offer", "@id": "http://[::1", "price": 3}]}))
     [p] = products_on_page(doc, URL)
     assert p["price"] == 3.0
+
+
+def test_price_specification_list_gives_price_and_currency():
+    # the shape WooCommerce publishes: offers[].priceSpecification is a list
+    doc = page(ld({"@graph": [{"@type": "Product", "name": "Ext", "sku": "W1", "offers": [{
+        "@type": "Offer", "availability": "https://schema.org/InStock",
+        "priceSpecification": [{"@type": "UnitPriceSpecification", "price": "279.00", "priceCurrency": "USD"}]}]}]}))
+    [p] = products_on_page(doc, URL)
+    assert (p["price"], p["currency"]) == (279.0, "USD")
+
+
+def test_strikethrough_price_is_not_the_selling_price():
+    doc = page(ld({"@type": "Product", "name": "Sale", "offers": {"@type": "Offer", "priceSpecification": [
+        {"@type": "UnitPriceSpecification", "priceType": "https://schema.org/StrikethroughPrice",
+         "price": 120, "priceCurrency": "EUR"},
+        {"@type": "UnitPriceSpecification", "price": 89.5, "priceCurrency": "EUR"}]}}))
+    [p] = products_on_page(doc, URL)
+    assert (p["price"], p["currency"]) == (89.5, "EUR")
+
+
+def test_category_written_as_html_links_is_text():
+    doc = page(ld({"@type": "Product", "name": "C",
+                   "category": '<a href="/c/a" rel="tag">Tools</a>, <a href="/c/b">Wallets &amp; cards</a>'}))
+    [p] = products_on_page(doc, URL)
+    assert p["category"] == "Tools, Wallets & cards"
+
+
+LISTING = "".join(f"""
+<div itemscope itemtype="https://schema.org/Product">
+  <img itemprop="image" src="/img/{i}.png">
+  <h4 itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+    <span itemprop="price">${i}06.99</span><meta itemprop="priceCurrency" content="USD"></h4>
+  <a href="/product/{i}" class="title" itemprop="name">  Laptop {i} </a>
+  <a itemprop="url" href="/product/{i}">open</a>
+</div>""" for i in (1, 2, 3))
+
+
+def test_text_property_on_a_link_reads_the_text_url_property_reads_the_href():
+    items = page(body=LISTING).microdata
+    assert [i["name"] for i in items] == ["Laptop 1", "Laptop 2", "Laptop 3"]
+    assert items[0]["url"] == "https://shop.example/product/1"
+
+
+def test_every_product_on_a_listing_page_is_kept():
+    from ww_scraper.actors.product_catalog import dedupe_key
+    # three products without SKU, GTIN or own URL on one page must not collapse into one
+    body = "".join(f'<div itemscope itemtype="https://schema.org/Product"><span itemprop="name">P{i}</span>'
+                   f'<div itemprop="offers" itemscope itemtype="https://schema.org/Offer">'
+                   f'<span itemprop="price">{i}.00</span></div></div>' for i in (1, 2, 3))
+    assert len({dedupe_key(p) for p in products_on_page(page(body=body), URL)}) == 3
+    # the same product twice on one page is still one, and a product's own URL still wins
+    assert len({dedupe_key(p) for p in products_on_page(page(body=body + body), URL)}) == 3
+    [a, b] = products_on_page(page(ld([{"@type": "Product", "name": "X", "url": "/p/9"},
+                                       {"@type": "Product", "name": "X again", "url": "/p/9"}])), URL)
+    assert dedupe_key(a) == dedupe_key(b)
+
+
+@pytest.mark.parametrize("text, title, want", [
+    ("Asus VivoBook...", "Asus VivoBook X441NA-GA190", "Asus VivoBook X441NA-GA190"),
+    ("Lenovo V110-15…", "Lenovo V110-15IAP", "Lenovo V110-15IAP"),
+    ("Aspire E1-510", "Aspire E1-510", "Aspire E1-510"),
+    ("Short...", "Something else entirely", "Short..."),      # a title that does not continue it
+    ("Wait...", "", "Wait..."),
+])
+def test_cut_link_text_is_completed_from_its_title(text, title, want):
+    t = f' title="{title}"' if title else ""
+    doc = page(body=f'<div itemscope itemtype="https://schema.org/Product">'
+                    f'<a href="/p/1"{t} itemprop="name">{text}</a></div>')
+    assert doc.microdata[0]["name"] == want
