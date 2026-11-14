@@ -6,6 +6,8 @@ human-readable string (e.g. "CC BY 4.0", "CC0", "PDM").
 """
 from __future__ import annotations
 
+import time
+
 import requests
 
 from ..models import Resource
@@ -19,8 +21,13 @@ class Openverse:
 
     def search(self, session: requests.Session, query: str, limit: int) -> list[Resource]:
         page_size = max(1, min(int(limit), 50))
-        r = session.get(API, params={"q": query, "page_size": page_size, "mature": "false"},
-                        timeout=60)  # Openverse can be slow (~30s) under load
+        params = {"q": query, "page_size": page_size, "mature": "false"}
+        r = session.get(API, params=params, timeout=60)  # Openverse can be slow (~30s) under load
+        if r.status_code in (502, 503, 504):
+            # its gateway gives up on slow searches (seen 2026-11-14: 504, then 200 after 11 s);
+            # one more try after a pause, then the error stands and is reported per source
+            time.sleep(2)
+            r = session.get(API, params=params, timeout=60)
         r.raise_for_status()
         out = []
         for it in r.json().get("results", []):

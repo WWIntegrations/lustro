@@ -19,6 +19,10 @@ class Pexels:
     name = "pexels"
     allow_hosts = frozenset({"images.pexels.com", "api.pexels.com", "www.pexels.com"})
 
+    def unavailable(self):
+        """Why this source cannot run now, or None."""
+        return None if os.environ.get("PEXELS_API_KEY") else "PEXELS_API_KEY is not set"
+
     def search(self, session: requests.Session, query: str, limit: int) -> list[Resource]:
         key = os.environ.get("PEXELS_API_KEY")
         if not key:

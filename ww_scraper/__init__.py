@@ -29,7 +29,7 @@ def run_actor(*args, **kwargs):
     return _run(*args, **kwargs)
 
 
-def search(query, sources=None, limit=12, verify=True, session=None):
+def search(query, sources=None, limit=12, verify=True, session=None, report=None):
     """Search one or more compliant sources and return verified Resource items.
 
     query   : free-text query
@@ -37,24 +37,33 @@ def search(query, sources=None, limit=12, verify=True, session=None):
     limit   : max results per source
     verify  : fetch each asset and confirm it is a live image (recommended)
     session : optional requests.Session (a polite one is created if omitted)
+    report  : optional dict, filled per source with {"found", "verified"} and, when the
+              source failed or could not run, "error" or "skipped". One source failing never
+              sinks the others, and with a report it never fails silently either.
     """
+    from . import verify as _verify
     from .compliance import make_session
-    from .verify import verify_resource
 
     sess = session or make_session()
     names = sources or list(SOURCES)
     out = []
+    report = {} if report is None else report
     for name in names:
         src = get_source(name)
         if src is None:
+            report[name] = {"found": 0, "verified": 0, "skipped": "unknown source"}
+            continue
+        why = getattr(src, "unavailable", lambda: None)()
+        if why:
+            report[name] = {"found": 0, "verified": 0, "skipped": why}
             continue
         try:
             items = src.search(sess, query, limit)
-        except Exception:
-            continue  # one source failing must not sink the whole search
+        except Exception as e:  # noqa: BLE001 - recorded, and the other sources still run
+            report[name] = {"found": 0, "verified": 0, "error": f"{type(e).__name__}: {e}"[:300]}
+            continue
         allow = getattr(src, "allow_hosts", None)
-        for r in items:
-            if verify and not verify_resource(sess, r, allowlist=allow):
-                continue
-            out.append(r)
+        kept = [r for r in items if not verify or _verify.verify_resource(sess, r, allowlist=allow)]
+        report[name] = {"found": len(items), "verified": len(kept)}
+        out += kept
     return out

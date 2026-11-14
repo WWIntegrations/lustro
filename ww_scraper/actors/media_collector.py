@@ -33,7 +33,19 @@ class MediaCollector(Actor):
         if unknown:
             raise ValueError(f"unknown sources: {', '.join(unknown)}")
         session = make_session(max(1.0, inp["minIntervalSecs"]))
+        report = {}
         items = search(inp["query"], sources=inp["sources"] or None, limit=inp["limit"],
-                       verify=inp["verify"], session=session)
+                       verify=inp["verify"], session=session, report=report)
+        for name, r in report.items():
+            if r.get("error"):
+                ctx.log.warning(f"{name}: failed: {r['error']}")
+            elif r.get("skipped"):
+                ctx.log.warning(f"{name}: skipped: {r['skipped']}")
+            elif r["found"] and not r["verified"]:
+                ctx.log.warning(f"{name}: {r['found']} found, none passed the live check")
+        ctx.set_value("OUTPUT", {"query": inp["query"], "items": len(items), "sources": report})
+        ran = {n: r for n, r in report.items() if not r.get("skipped")}
+        if not items and ran and all(r.get("error") for r in ran.values()):
+            raise RuntimeError("every source failed: " + "; ".join(f"{n}: {r['error']}" for n, r in ran.items()))
         ctx.push_data([r.to_dict() for r in items])
         ctx.log.info(f"{len(items)} item(s) collected")
