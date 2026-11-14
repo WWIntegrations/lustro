@@ -480,11 +480,12 @@ class PoliteCrawler:
         filtering proxy (ww_scraper/proxy.py), which refuses private addresses."""
         import hashlib
 
-        from .render import RenderError, render_dom, render_page, visible_words
+        from .render import RenderError, needs_render, render_dom, render_page, visible_words
         host = urlparse(res.final_url).hostname or ""
         self.session.limiter.wait(host)          # the render is a second visit: space it
         self._inc("requests")
-        before = visible_words(res.text()) if self.render == "auto" else 0
+        raw = res.text()
+        before = visible_words(raw)
         b = self.browser or {}
         shot_fmt = b.get("format") or "png"
         try:
@@ -512,10 +513,27 @@ class PoliteCrawler:
                         self.ctx.kv.set(key, out.pdf, "application/pdf")
                         res.artifacts["pdfKey"] = key
             else:
-                html = render_dom(res.final_url, allow_loopback=self.allow_loopback,
-                                  wait_ms=self.render_wait_ms, max_bytes=self.max_bytes,
-                                  accept_language=self.accept_language,
-                                  allow_hosts=getattr(self.ctx, "allow_hosts", None))
+                def dom(wait_ms):
+                    return render_dom(res.final_url, allow_loopback=self.allow_loopback,
+                                      wait_ms=wait_ms, max_bytes=self.max_bytes,
+                                      accept_language=self.accept_language,
+                                      allow_hosts=getattr(self.ctx, "allow_hosts", None))
+                html = dom(self.render_wait_ms)
+                # a cold browser can spend its time budget before the page's scripts ran;
+                # a script-built page that rendered no more text than its raw HTML gets one
+                # more try with a longer wait, and stays counted when that does not help
+                if needs_render(raw) and visible_words(html) <= before:
+                    self.session.limiter.wait(host)
+                    self._inc("requests")
+                    again = dom(max(self.render_wait_ms, 1000) * 3)
+                    if visible_words(again) > before:
+                        html = again
+                        self._inc("renderRetried")
+                    else:
+                        self._inc("renderEmpty")
+                        if self.log:
+                            self.log.warning(f"render of {res.final_url} added no text, also after a "
+                                             f"longer wait; try waitForSelector")
         except RenderError as e:
             self._inc("renderFailed")
             if self.log:

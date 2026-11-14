@@ -64,10 +64,43 @@ each book on a listing is its own `<article>`, and the extractor kept only the f
 share: 10.89 prices per listing page against 10.75. The hosted crawler kept the page title and
 breadcrumbs as well (658 against 579 words per listing page).
 
-What this does and does not show: on a small, permissive site one laptop matches the hosted
-crawler's speed at its 4 GB setting with about 2% of its memory, stops at the page limit, and
-costs nothing per run. It says nothing about many machines, browser-rendered sites or sites
-that need proxies, which ww-scraper does not attempt.
+The extra pages on the hosted side are not duplicates: all 212 and all 206 URLs are
+distinct, so the hosted crawler finishes the requests already in flight when it reaches its
+page limit. ww-scraper stops at the limit exactly.
+
+#### A JavaScript-rendered site
+
+On 2026-11-14 the same comparison ran on `https://quotes.toscrape.com/js/`, a practice site
+whose quotes exist only after a script runs. The hosted crawler used its adaptive browser mode
+at 4 GB; ww-scraper used `"render": true` with local Chrome, up to 4 pages in flight.
+
+| | ww-scraper, local | Hosted, 4 GB, browser |
+|---|---|---|
+| Run time | 43 s | 62 s (68 s with queueing) |
+| Pages saved | 11 of 11 | 11 of 11 |
+| Quotes per page | 10 | 10 |
+| Words per page (10 paginated pages) | 326 | 276 |
+| Peak memory | 233 MB (largest single process) | 1,506 MB |
+| Cost of the run | none | $0.010 |
+
+Both saved the same 11 URLs with every quote on them. ww-scraper's pages are longer because
+it keeps the tag links under each quote. Two defaults differ, and you need to know them to
+reproduce this: the hosted crawler stays under the start URL's path and follows links 20
+levels deep, while ww-scraper stays on the start origin and goes 2 levels deep. The run
+above therefore set `"includeGlobs": ["https://quotes.toscrape.com/js/**"]` and
+`"maxDepth": 20`. Run with its own defaults, ww-scraper spent its 50-page budget across the
+whole site and reached only 3 of the 11 script-built pages.
+
+This run also exposed a defect, fixed in this release: in one of seven runs the start page came
+back from Chrome with no quotes, because the browser's time budget ran out before the page's
+script ran. A page that looks script-built and gains no text from rendering is now rendered
+again with three times the wait. If it is still empty, it is counted in `stats.renderEmpty`
+with a warning, instead of passing as a page with no content.
+
+What this does and does not show: on small, permissive sites, plain or script-built, one
+laptop matches or beats the hosted crawler's speed with a fraction of its memory, stops at
+the page limit, and costs nothing per run. It says nothing about many machines or sites that
+need proxies, which ww-scraper does not attempt.
 
 ## When ww-scraper is the better tool
 

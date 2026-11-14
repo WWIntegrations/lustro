@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Rendering: a page whose raw HTML looks script-built and that gains no text from
+  `"render": true` (a cold browser can spend its time budget before the page's scripts
+  run) is rendered once more with three times the wait. If it is still empty it is counted
+  in `stats.renderEmpty` with a warning; a retry that helped counts in `stats.renderRetried`.
+- `docs/comparison.md`: a second measured site, rendered with JavaScript, and why the hosted
+  crawler saved more pages than its limit.
+
 Fixes from a review of the measurement fixes:
 
 - Run log lines and stored failure reasons keep only printable text: an escape sequence
